@@ -68,6 +68,7 @@ internal/config/              # flags, environment, validation, logger wiring
 internal/server/              # data plane and health listeners, shutdown
 tools/                        # pinned Go tools (golangci-lint, yq)
 .tekton/                      # Konflux PipelineRuns for the image build
+.hyperfleet.yaml              # repository type, read by HyperFleet tooling
 ```
 
 ## Checks
