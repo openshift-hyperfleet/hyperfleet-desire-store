@@ -31,7 +31,6 @@ func TestDefaultUsesDocumentedValues(t *testing.T) {
 func TestDefaultReadsEnvironment(t *testing.T) {
 	t.Setenv(envServerAddr, ":9001")
 	t.Setenv(envHealthAddr, ":9002")
-	t.Setenv(envShutdownTimeout, "45s")
 	t.Setenv(envLogLevel, "debug")
 
 	cfg, err := Default()
@@ -45,32 +44,35 @@ func TestDefaultReadsEnvironment(t *testing.T) {
 	if cfg.HealthAddr != ":9002" {
 		t.Fatalf("HealthAddr = %q, want :9002", cfg.HealthAddr)
 	}
-	if cfg.ShutdownTimeout != 45*time.Second {
-		t.Fatalf("ShutdownTimeout = %s, want 45s", cfg.ShutdownTimeout)
-	}
 	if cfg.LogLevel != "debug" {
 		t.Fatalf("LogLevel = %q, want debug", cfg.LogLevel)
 	}
 }
 
-func TestDefaultAcceptsBareSeconds(t *testing.T) {
-	t.Setenv(envShutdownTimeout, "30")
-
-	cfg, err := Default()
-	if err != nil {
-		t.Fatalf("Default() error: %v", err)
+func TestDefaultParsesShutdownTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "empty uses default", value: "", want: defaultShutdownTimeout},
+		{name: "duration", value: "45s", want: 45 * time.Second},
+		{name: "bare seconds", value: "30", want: 30 * time.Second},
+		{name: "compound duration", value: "1h30m", want: 90 * time.Minute},
+		{name: "malformed", value: "twenty", wantErr: true},
 	}
-
-	if cfg.ShutdownTimeout != 30*time.Second {
-		t.Fatalf("ShutdownTimeout = %s, want 30s", cfg.ShutdownTimeout)
-	}
-}
-
-func TestDefaultRejectsMalformedDuration(t *testing.T) {
-	t.Setenv(envShutdownTimeout, "twenty")
-
-	if _, err := Default(); err == nil {
-		t.Fatal("Default() must fail on a malformed SHUTDOWN_TIMEOUT")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(envShutdownTimeout, tt.value)
+			cfg, err := Default()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Default() error = %v, wantErr %t", err, tt.wantErr)
+			}
+			if !tt.wantErr && cfg.ShutdownTimeout != tt.want {
+				t.Fatalf("ShutdownTimeout = %s, want %s", cfg.ShutdownTimeout, tt.want)
+			}
+		})
 	}
 }
 

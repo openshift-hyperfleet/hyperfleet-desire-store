@@ -5,7 +5,8 @@ precedence.
 
 Every setting follows the HyperFleet configuration standard: flags are
 kebab-case and grouped by section, environment variables are prefixed with
-HYPERFLEET_ and mirrored from the setting path.
+HYPERFLEET_ and mirrored from the setting path, except SHUTDOWN_TIMEOUT,
+which is unprefixed as defined by the graceful shutdown standard.
 */
 package config
 

@@ -70,8 +70,7 @@ func (s *Server) Run(ctx context.Context) error {
 		// Shut the surviving listener down before returning, so a failure on
 		// one port does not leave the process half serving.
 		if shutdownErr := s.shutdown(); shutdownErr != nil {
-			s.log.ErrorContext(ctx, "shutdown after a listener failure did not complete",
-				"error", shutdownErr)
+			s.logShutdownError(ctx, "shutdown after a listener failure did not complete", shutdownErr)
 		}
 		return err
 	}
@@ -98,13 +97,21 @@ func (s *Server) shutdown() error {
 	defer cancel()
 
 	if err := s.Shutdown(ctx); err != nil {
-		s.log.ErrorContext(ctx, "graceful shutdown did not complete within the timeout",
-			"shutdown_timeout", s.cfg.ShutdownTimeout, "error", err)
+		s.logShutdownError(ctx, "graceful shutdown did not complete", err)
 		return err
 	}
 
 	s.log.InfoContext(ctx, "shutdown complete")
 	return nil
+}
+
+// logShutdownError distinguishes a bounded drain timeout from other failures.
+func (s *Server) logShutdownError(ctx context.Context, message string, err error) {
+	level := slog.LevelError
+	if errors.Is(err, context.DeadlineExceeded) {
+		level = slog.LevelWarn
+	}
+	s.log.Log(ctx, level, message, "shutdown_timeout", s.cfg.ShutdownTimeout, "error", err)
 }
 
 // apiHandler builds the data-plane routes. The v1 Desire Store routes are

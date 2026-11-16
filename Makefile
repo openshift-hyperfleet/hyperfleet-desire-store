@@ -9,12 +9,13 @@ BINARY_PATH ?= bin/$(BINARY_NAME)
 
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_DIRTY ?= $(shell [ -z "$$(git status --porcelain 2>/dev/null)" ] || echo "-modified")
 APP_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev")
 
 GOFLAGS ?= -trimpath
 LDFLAGS := -s -w \
 	-X main.version=$(APP_VERSION) \
-	-X main.commit=$(GIT_SHA) \
+	-X main.commit=$(GIT_SHA)$(GIT_DIRTY) \
 	-X main.date=$(BUILD_DATE)
 
 # FIPS-compliant builds are mandatory for shipped HyperFleet services: the
@@ -130,13 +131,14 @@ image: check-container-tool ## Build the container image
 	$(CONTAINER_TOOL) build \
 		--platform $(PLATFORM) \
 		--build-arg GIT_SHA=$(GIT_SHA) \
+		--build-arg GIT_DIRTY=$(GIT_DIRTY) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg APP_VERSION=$(APP_VERSION) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		-t $(IMG) .
 
 .PHONY: image-push
-image-push: check-container-tool ## Push the container image
+image-push: check-container-tool image ## Build and push the container image
 	$(CONTAINER_TOOL) push $(IMG)
 
 ##@ Verification

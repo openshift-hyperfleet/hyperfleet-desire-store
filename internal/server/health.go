@@ -62,6 +62,6 @@ func (s *Server) writeJSON(ctx context.Context, w http.ResponseWriter, code int,
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	if _, err := w.Write(payload); err != nil {
-		s.log.ErrorContext(ctx, "writing probe response", "error", err)
+		s.log.WarnContext(ctx, "writing probe response", "error", err)
 	}
 }

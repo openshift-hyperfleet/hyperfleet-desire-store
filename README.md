@@ -53,6 +53,9 @@ defaults. A malformed value fails startup instead of being ignored.
 | `--log-format`, `-f` | `HYPERFLEET_LOG_FORMAT` | `json` |
 | `--log-output` | `HYPERFLEET_LOG_OUTPUT` | `stdout` |
 
+See [Configuration](docs/config.md) for the complete option reference,
+validation rules, and supported configuration sources.
+
 Settings and naming follow the [configuration standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/configuration.md)
 and the [logging specification](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/logging-specification.md).
 
@@ -84,14 +87,16 @@ Every change is expected to pass:
 | Konflux PipelineRuns parse | `make validate-tekton` |
 | Commit message convention | `pre-commit install`, then the `commit-msg` hook |
 
-The Prow presubmits for this repository run `make lint` and `make test` and the
+Prow setup is pending in [HYPERFLEET-1918](https://redhat.atlassian.net/browse/HYPERFLEET-1918).
+Once configured, the presubmits will run `make lint`, `make test`, and the
 `hyperfleet-commitlint` check, in line with the [repository creation guidelines](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/docs/repository-creation-guidelines.md).
+Until then, run these checks locally; their Makefile targets do not mean CI is active.
 
 ## Container image
 
 ```bash
 make image                        # build locally
-make image-push IMAGE_TAG=v0.1.0  # push
+make image-push IMAGE_TAG=v0.1.0  # build and push
 ```
 
 The build is FIPS-compliant (`CGO_ENABLED=1`, `GOEXPERIMENT=boringcrypto`) and
