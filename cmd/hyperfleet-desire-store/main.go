@@ -24,6 +24,7 @@ var (
 
 func main() {
 	if err := newRootCommand().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
