@@ -11,17 +11,27 @@ The service is part of the Desire Store design:
 
 ## Status
 
-This repository currently holds the service scaffold: the process starts,
-serves the standard health endpoints, shuts down gracefully, and builds a
-FIPS-compliant image. The REST v1 routes are not implemented yet; the data
-plane listener exists so the deployment and gateway wiring can be built
-against the final shape.
+The process starts, serves the standard health endpoints, shuts down
+gracefully, and builds a FIPS-compliant image.
+
+The REST v1 service is implemented in the same layers as hyperfleet-api:
+`internal/handlers` decodes requests and writes responses, `internal/services`
+holds the business rules, `internal/presenters` builds the wire shapes, and
+`internal/errors` defines the one error type. It validates Wristbands,
+authorizes callers from the Wristband claims, serves the five operations, and
+answers errors in the Error Model format. Its tests run
+against the shared store interface with the Applier's in-memory store.
+
+`serve` does not mount this layer yet. Every data-plane path returns a
+plain-text 404. The Postgres store backend
+([HYPERFLEET-1671](https://redhat.atlassian.net/browse/HYPERFLEET-1671)) mounts
+it.
 
 ## Quick start
 
 ```bash
 make build      # bin/hyperfleet-desire-store
-make run        # serve with text logs on :8000 and :8080
+make run        # serve with text logs on :8000 and :8080; set the required settings first
 make test       # unit tests with the race detector
 make lint       # golangci-lint, pinned in tools/go.mod
 make ci-validate  # everything CI runs, except the image build
@@ -35,7 +45,7 @@ make ci-validate  # everything CI runs, except the image build
 | --- | --- | --- |
 | `8080` | `/healthz` | Liveness. Reports process state only, never a dependency. |
 | `8080` | `/readyz` | Readiness. `503` during startup and across the shutdown drain. |
-| `8000` | `/api/hyperfleet/desire-store/v1/...` | Desire Store REST v1 data plane, not implemented yet. |
+| `8000` | `/api/hyperfleet/desire-store/v1/...` | Desire Store REST v1 data plane, not mounted yet (see [Status](#status)). |
 
 Both follow the [health endpoints standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/health-endpoints.md).
 
@@ -52,6 +62,25 @@ defaults. A malformed value fails startup instead of being ignored.
 | `--log-level`, `-l` | `HYPERFLEET_LOG_LEVEL` | `info` |
 | `--log-format`, `-f` | `HYPERFLEET_LOG_FORMAT` | `json` |
 | `--log-output` | `HYPERFLEET_LOG_OUTPUT` | `stdout` |
+| `--partition-claim` | `HYPERFLEET_PARTITION_CLAIM` | none, required |
+| `--wristband-issuer` | `HYPERFLEET_WRISTBAND_ISSUER` | none, required |
+| `--wristband-audience` | `HYPERFLEET_WRISTBAND_AUDIENCE` | none, required |
+| `--wristband-jwks-url` | `HYPERFLEET_WRISTBAND_JWKS_URL` | none, required |
+| `--wristband-jwks-ca-file` | `HYPERFLEET_WRISTBAND_JWKS_CA_FILE` | none: the system trust store |
+| `--wristband-algorithms` | `HYPERFLEET_WRISTBAND_ALGORITHMS` | `ES256` |
+| `--sweeper-identity` | `HYPERFLEET_SWEEPER_IDENTITY` | none, required |
+| `--db-max-concurrency` | `HYPERFLEET_DB_MAX_CONCURRENCY` | none, required |
+
+`serve`, and so `make run`, fails at startup when a required setting is
+missing or invalid. The Wristband settings name the issuer, audience, signing
+algorithms, and key set of the Wristbands that the gateway issues.
+`--partition-claim` names the Wristband claim that carries the caller's
+partition. No setting turns the partition check off. `--sweeper-identity` is
+the `hf_identity` of the centralized sweeper. `--db-max-concurrency` is the
+connection pool size for the Postgres store.
+
+`serve` validates these settings, but nothing uses them until the REST v1 layer
+is mounted (see [Status](#status)).
 
 See [Configuration](docs/config.md) for the complete option reference,
 validation rules, and supported configuration sources.
@@ -68,6 +97,11 @@ requests, and stops the health listener last, per the
 ```text
 cmd/hyperfleet-desire-store/  # entry point, serve and version subcommands
 internal/config/              # flags, environment, validation, logger wiring
+internal/auth/                # Wristband validation; authtest/ mints Wristbands for tests
+internal/handlers/            # HTTP: routes, middleware, request decoding, responses
+internal/services/            # business rules: caller permissions, store calls, store errors
+internal/presenters/          # REST v1 wire shapes and list cursors
+internal/errors/              # ServiceError and its RFC 9457 problem form
 internal/server/              # data plane and health listeners, shutdown
 tools/                        # pinned Go tools (golangci-lint, yq)
 .tekton/                      # Konflux PipelineRuns for the image build

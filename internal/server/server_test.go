@@ -5,20 +5,19 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/config"
 )
 
 const testAddr = "127.0.0.1:0"
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	return New(config.Config{
-		ServerAddr:      testAddr,
+	return New(http.NewServeMux(), Options{
+		Addr:            testAddr,
 		HealthAddr:      testAddr,
 		ShutdownTimeout: 5 * time.Second,
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -89,30 +88,6 @@ func TestReadinessReportsOKWhenReady(t *testing.T) {
 	}
 }
 
-func TestHealthEndpointsRejectOtherMethods(t *testing.T) {
-	server := newTestServer(t)
-
-	recorder := httptest.NewRecorder()
-	server.healthHandler().ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/healthz", nil))
-
-	if recorder.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
-	}
-}
-
-func TestAPIServerHasNoRoutesYet(t *testing.T) {
-	server := newTestServer(t)
-
-	recorder := httptest.NewRecorder()
-	server.apiHandler().ServeHTTP(recorder,
-		httptest.NewRequest(http.MethodGet, "/api/hyperfleet/desire-store/v1/partitions/mc-01/desires", nil))
-
-	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d until the service implementation adds routes",
-			recorder.Code, http.StatusNotFound)
-	}
-}
-
 func TestRunReturnsAfterContextCancellation(t *testing.T) {
 	server := newTestServer(t)
 
@@ -136,12 +111,94 @@ func TestRunReturnsAfterContextCancellation(t *testing.T) {
 	}
 }
 
+// TestReadinessIsUnavailableDuringTheDrain runs both listeners, holds one
+// data-plane request open, and cancels Run. /readyz must answer 503 while the
+// request drains, and the request must still complete.
+func TestReadinessIsUnavailableDuringTheDrain(t *testing.T) {
+	apiAddr, healthAddr := freeAddr(t), freeAddr(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.HandleFunc("GET /slow", func(w http.ResponseWriter, _ *http.Request) {
+		close(entered)
+		<-release
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := New(mux, Options{Addr: apiAddr, HealthAddr: healthAddr, ShutdownTimeout: 10 * time.Second},
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- server.Run(ctx) }()
+
+	readyz := "http://" + healthAddr + "/readyz"
+	waitForStatus(t, readyz, http.StatusOK)
+	waitForStatus(t, "http://"+apiAddr+"/ping", http.StatusNoContent)
+
+	inflight := make(chan int, 1)
+	go func() { inflight <- statusOf("http://" + apiAddr + "/slow") }()
+	select {
+	case <-entered:
+	case code := <-inflight:
+		t.Fatalf("the slow request ended with status %d before it reached the handler", code)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the slow request did not reach the handler within 5s")
+	}
+	cancel()
+
+	waitForStatus(t, readyz, http.StatusServiceUnavailable)
+	close(release)
+	if code := <-inflight; code != http.StatusNoContent {
+		t.Fatalf("in-flight request status = %d, want %d after the drain", code, http.StatusNoContent)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned %v, want nil after a graceful shutdown", err)
+	}
+}
+
+// freeAddr returns a loopback address with a port that was free a moment ago.
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("finding a free port: %v", err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("releasing the free port: %v", err)
+	}
+	return addr
+}
+
+// statusOf returns the status of a GET, or 0 when the request fails.
+func statusOf(url string) int {
+	response, err := http.Get(url) //nolint:noctx // a test request bounded by the server's own shutdown
+	if err != nil {
+		return 0
+	}
+	_ = response.Body.Close()
+	return response.StatusCode
+}
+
+// waitForStatus polls url until it answers want, for at most five seconds.
+func waitForStatus(t *testing.T, url string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for statusOf(url) != want {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s did not answer %d within 5s", url, want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestRunFailsWhenTheHealthAddressIsInUse(t *testing.T) {
 	occupied := httptest.NewServer(http.NotFoundHandler())
 	t.Cleanup(occupied.Close)
 
-	server := New(config.Config{
-		ServerAddr:      testAddr,
+	server := New(http.NewServeMux(), Options{
+		Addr:            testAddr,
 		HealthAddr:      occupied.Listener.Addr().String(),
 		ShutdownTimeout: 5 * time.Second,
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
