@@ -9,6 +9,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync/atomic"
@@ -99,15 +100,25 @@ func (s *Server) Run(ctx context.Context) error {
 // Shutdown implements the graceful shutdown sequence: mark not ready, drain
 // the data plane, then stop answering probes. Stopping the health listener
 // last keeps /readyz returning 503 while in-flight requests drain, which is
-// what tells Kubernetes to remove the pod from service endpoints.
+// what tells Kubernetes to remove the pod from service endpoints. Both
+// listeners stop even when the drain does not finish, and the error holds
+// the failure of each.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.ready.Store(false)
 	s.log.InfoContext(ctx, "draining in-flight requests")
 
-	if err := s.api.Shutdown(ctx); err != nil {
-		return err
+	apiErr := stop(ctx, "api", s.api)
+	return errors.Join(apiErr, stop(ctx, "health", s.health))
+}
+
+// stop shuts one listener down gracefully. When that does not finish before
+// ctx ends, it closes the connections that remain.
+func stop(ctx context.Context, name string, srv *http.Server) error {
+	err := srv.Shutdown(ctx)
+	if err == nil {
+		return nil
 	}
-	return s.health.Shutdown(ctx)
+	return fmt.Errorf("stopping the %s listener: %w", name, errors.Join(err, srv.Close()))
 }
 
 func (s *Server) shutdown() error {

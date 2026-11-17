@@ -215,8 +215,12 @@ func (v *Validator) Authenticate(r *http.Request) (Caller, *Error) {
 // lookup. The key-set library gives every caller that misses the cache its
 // own refresh and fails the ones that find the refresh budget empty, even
 // when the key is about to arrive.
+//
+// The shared lookup does not stop when the request that started it is
+// canceled, because the other requests still wait for its result. The
+// key-set library bounds it with unknownKIDWaitMax, and the HTTP client with
+// jwksHTTPTimeout. Each request stops waiting when its own context ends.
 func (v *Validator) keyForToken(ctx context.Context) jwt.Keyfunc {
-	lookup := v.keys.KeyfuncCtx(ctx)
 	return func(token *jwt.Token) (any, error) {
 		kid, ok := token.Header["kid"].(string)
 		if !ok || kid == "" {
@@ -224,10 +228,16 @@ func (v *Validator) keyForToken(ctx context.Context) jwt.Keyfunc {
 		}
 		alg, ok := token.Header["alg"].(string)
 		if !ok {
-			return lookup(token) // the library rejects it with its own error
+			return v.keys.KeyfuncCtx(ctx)(token) // the library rejects it with its own error
 		}
-		key, err, _ := v.lookups.Do(kid+"\x00"+alg, func() (any, error) { return lookup(token) })
-		return key, err
+		shared := v.keys.KeyfuncCtx(context.WithoutCancel(ctx))
+		lookup := v.lookups.DoChan(kid+"\x00"+alg, func() (any, error) { return shared(token) })
+		select {
+		case result := <-lookup:
+			return result.Val, result.Err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 }
 

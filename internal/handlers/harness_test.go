@@ -69,18 +69,22 @@ func (a *testAPI) token(t *testing.T, class auth.CallerClass, identity, partitio
 }
 
 func (a *testAPI) adapter(t *testing.T) string {
+	t.Helper()
 	return a.token(t, auth.ClassFleetScoped, adapterA, testPartition)
 }
 
 func (a *testAPI) otherAdapter(t *testing.T) string {
+	t.Helper()
 	return a.token(t, auth.ClassFleetScoped, adapterB, testPartition)
 }
 
 func (a *testAPI) applier(t *testing.T) string {
+	t.Helper()
 	return a.token(t, auth.ClassRemoteApplier, applierID, testPartition)
 }
 
 func (a *testAPI) sweeper(t *testing.T) string {
+	t.Helper()
 	return a.token(t, auth.ClassFleetScoped, authtest.SweeperID, testPartition)
 }
 

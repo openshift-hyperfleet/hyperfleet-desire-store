@@ -4,7 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,7 +53,12 @@ func newValidator(t *testing.T, signer *authtest.Signer) *auth.Validator {
 }
 
 func serve(v *auth.Validator, rec *recorder, header http.Header) int {
-	request := httptest.NewRequest(http.MethodGet, "/api/hyperfleet/desire-store/v1/partitions/mc-01/desires", nil)
+	return serveContext(context.Background(), v, rec, header)
+}
+
+func serveContext(ctx context.Context, v *auth.Validator, rec *recorder, header http.Header) int {
+	request := httptest.NewRequestWithContext(ctx, http.MethodGet,
+		"/api/hyperfleet/desire-store/v1/partitions/mc-01/desires", nil)
 	for name, values := range header {
 		for _, value := range values {
 			request.Header.Add(name, value)
@@ -300,6 +308,78 @@ func TestNewValidatorFailsOnAnEmptyKeySet(t *testing.T) {
 	if v, err := auth.NewValidator(context.Background(), opts); err == nil {
 		v.Close()
 		t.Fatal("NewValidator() succeeded with a key set that holds no keys")
+	}
+}
+
+// TestCanceledRequestLeavesTheSharedLookupRunning cancels the request that
+// started a shared key lookup while another request waits for it. The waiting
+// request must still pass.
+func TestCanceledRequestLeavesTheSharedLookupRunning(t *testing.T) {
+	signer := authtest.NewSigner(t)
+	target, err := url.Parse(signer.URL())
+	if err != nil {
+		t.Fatalf("parsing the signer URL: %v", err)
+	}
+	// The key set is served through a gate that holds responses while
+	// holding is set, so the shared lookup stays in flight.
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	held := make(chan struct{})
+	var holding atomic.Bool
+	var fetches atomic.Int64
+	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetches.Add(1)
+		if holding.Load() {
+			select {
+			case <-held:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		proxy.ServeHTTP(w, r)
+	}))
+	t.Cleanup(jwks.Close)
+	release := sync.OnceFunc(func() { close(held) })
+	t.Cleanup(release)
+
+	opts := signer.Options()
+	opts.JWKSURL = jwks.URL
+	v, err := auth.NewValidator(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("NewValidator() error: %v", err)
+	}
+	t.Cleanup(v.Close)
+	signer.Rotate(t)
+	token := signer.Sign(t, authtest.Claims(string(auth.ClassFleetScoped), adapterID, partitionID))
+	holding.Store(true)
+	before := fetches.Load()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	first := make(chan int, 1)
+	go func() { first <- serveContext(ctx, v, &recorder{}, wristband(token)) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for fetches.Load() == before {
+		if time.Now().After(deadline) {
+			t.Fatal("the first request did not start a key-set fetch within 5s")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	second := make(chan int, 1)
+	go func() { second <- serve(v, &recorder{}, wristband(token)) }()
+	// Let the second request join the lookup that is in flight.
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	if code := <-first; code != http.StatusUnauthorized {
+		t.Fatalf("canceled request status = %d, want 401", code)
+	}
+
+	release()
+	if code := <-second; code != http.StatusOK {
+		t.Fatalf("waiting request status = %d, want 200 after the canceled request left the lookup", code)
+	}
+	if got := fetches.Load() - before; got != 1 {
+		t.Fatalf("JWKS requests = %d, want 1 shared fetch", got)
 	}
 }
 

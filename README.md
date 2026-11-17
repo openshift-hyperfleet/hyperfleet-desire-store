@@ -91,6 +91,16 @@ and the [logging specification](https://github.com/openshift-hyperfleet/architec
 On `SIGTERM` or `SIGINT` the service marks itself not ready, drains in-flight
 requests, and stops the health listener last, per the
 [graceful shutdown standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/graceful-shutdown.md).
+The data-plane listener closes when the drain starts. A response whose headers
+are written during the drain carries `Connection: close`. When the drain does not finish within
+`SHUTDOWN_TIMEOUT`, the service closes the remaining connections on both
+listeners and exits with an error.
+
+Kubernetes removes a terminating pod from Service endpoints asynchronously, so
+traffic can still arrive after `SIGTERM`. As in the HyperFleet API chart, the
+deployment must delay `SIGTERM` with a `preStop` sleep (5s), and set
+`terminationGracePeriodSeconds` above the `preStop` sleep plus
+`SHUTDOWN_TIMEOUT`, with a margin.
 
 ## Layout
 

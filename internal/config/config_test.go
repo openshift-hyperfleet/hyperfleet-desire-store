@@ -118,6 +118,10 @@ func TestValidateRejectsBadValues(t *testing.T) {
 		"unknown log output":    {func(c *Config) { c.LogOutput = "syslog" }, "log-output"},
 		"unparsable JWKS URL":   {func(c *Config) { c.WristbandJWKSURL = "https://[::1" }, settingJWKSURL},
 		"relative JWKS URL":     {func(c *Config) { c.WristbandJWKSURL = "/certs" }, settingJWKSURL},
+		"non-HTTP JWKS URL": {
+			func(c *Config) { c.WristbandJWKSURL = "ftp://issuer.example/certs" }, settingJWKSURL,
+		},
+		"JWKS URL without a host": {func(c *Config) { c.WristbandJWKSURL = "https:///certs" }, settingJWKSURL},
 		"JWKS URL with credentials": {
 			func(c *Config) { c.WristbandJWKSURL = "https://user:secret@issuer.example/certs" }, settingJWKSURL,
 		},
