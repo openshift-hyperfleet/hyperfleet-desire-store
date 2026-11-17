@@ -128,6 +128,10 @@ func TestReadinessIsUnavailableDuringTheDrain(t *testing.T) {
 	})
 	server := New(mux, Options{Addr: apiAddr, HealthAddr: healthAddr, ShutdownTimeout: 10 * time.Second},
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// /readyz turns 503 before the API drain starts, so the test waits for the
+	// drain itself before it lets the slow request finish.
+	draining := make(chan struct{})
+	server.api.RegisterOnShutdown(func() { close(draining) })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -150,6 +154,11 @@ func TestReadinessIsUnavailableDuringTheDrain(t *testing.T) {
 	cancel()
 
 	waitForStatus(t, readyz, http.StatusServiceUnavailable)
+	select {
+	case <-draining:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the API listener did not start draining within 5s")
+	}
 	close(release)
 	response := <-inflight
 	if response == nil || response.StatusCode != http.StatusNoContent {
