@@ -1,0 +1,101 @@
+# HyperFleet Desire Store API - golangci-lint configuration
+# Aligned with: https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/golangci.yml
+
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    # Code Quality
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - unconvert
+    - unparam
+    - goconst
+    - exhaustive
+
+    # Code Style
+    - misspell
+    - lll
+    - revive
+    - gocritic
+
+    # Security
+    - gosec
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    govet:
+      enable-all: true
+      # Field order follows readability, not memory layout: these structs are
+      # built once at startup, so the padding fieldalignment reports costs
+      # nothing at runtime.
+      disable:
+        - fieldalignment
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    misspell:
+      locale: US
+    lll:
+      line-length: 120
+    revive:
+      rules:
+        - name: exported
+          severity: warning
+          disabled: true
+        - name: unexported-return
+          severity: warning
+          disabled: false
+        - name: var-naming
+          severity: warning
+          disabled: false
+    unparam:
+      check-exported: false
+    exhaustive:
+      default-signifies-exhaustive: true
+  exclusions:
+    generated: lax
+    rules:
+      # Relaxed rules for test files
+      - linters:
+          - gosec
+          - errcheck
+          - unparam
+        path: _test\.go
+    paths:
+      - third_party(/|$)
+      - builtin(/|$)
+      - examples(/|$)
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party(/|$)
+      - builtin(/|$)
+      - examples(/|$)
+
+output:
+  formats:
+    text:
+      path: stdout

@@ -1,0 +1,8 @@
+approvers:
+- desire-owners
+- tech-leads
+reviewers:
+- desire-reviewers
+- desire-owners
+labels:
+- area/desire-delivery

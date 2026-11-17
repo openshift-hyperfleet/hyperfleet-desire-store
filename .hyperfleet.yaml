@@ -1,0 +1,6 @@
+# .hyperfleet.yaml - Repository metadata for HyperFleet tooling
+version: v1
+repository:
+  types: [service]
+  name: hyperfleet-desire-store
+  description: Desire Store API service that transports desires from HyperFleet adapters to appliers
