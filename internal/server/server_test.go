@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -118,12 +119,14 @@ func TestRunReturnsAfterContextCancellation(t *testing.T) {
 // request drains, and the request must still complete.
 func TestReadinessIsUnavailableDuringTheDrain(t *testing.T) {
 	apiAddr, healthAddr := freeAddr(t), freeAddr(t)
-	entered, release := make(chan struct{}), make(chan struct{})
+	entered, released := make(chan struct{}), make(chan struct{})
+	release := sync.OnceFunc(func() { close(released) })
+	t.Cleanup(release)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /slow", func(w http.ResponseWriter, _ *http.Request) {
 		close(entered)
-		<-release
+		<-released
 		w.WriteHeader(http.StatusNoContent)
 	})
 	server := New(mux, Options{Addr: apiAddr, HealthAddr: healthAddr, ShutdownTimeout: 10 * time.Second},
@@ -159,7 +162,7 @@ func TestReadinessIsUnavailableDuringTheDrain(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the API listener did not start draining within 5s")
 	}
-	close(release)
+	release()
 	response := <-inflight
 	if response == nil || response.StatusCode != http.StatusNoContent {
 		t.Fatalf("in-flight request = %v, want status %d after the drain", response, http.StatusNoContent)

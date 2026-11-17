@@ -3,6 +3,7 @@
 package authtest
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -40,8 +41,6 @@ type Signer struct {
 	next      int
 	requests  atomic.Int64
 	failing   atomic.Bool
-	// writeErrors counts JWKS responses the client did not receive.
-	writeErrors atomic.Int64
 }
 
 // NewSigner starts a JWKS server that publishes one signing key.
@@ -174,7 +173,7 @@ func (s *Signer) addKey(t testing.TB) string {
 	return kid
 }
 
-func (s *Signer) serveJWKS(w http.ResponseWriter, _ *http.Request) {
+func (s *Signer) serveJWKS(w http.ResponseWriter, r *http.Request) {
 	s.requests.Add(1)
 	if s.failing.Load() {
 		http.Error(w, "key set unavailable", http.StatusInternalServerError)
@@ -202,7 +201,5 @@ func (s *Signer) serveJWKS(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if _, err := w.Write(body); err != nil {
-		s.writeErrors.Add(1)
-	}
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(body))
 }

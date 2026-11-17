@@ -36,14 +36,14 @@ const (
 	ClaimIdentity    = "hf_identity"
 )
 
-// Key-set refresh policy, the same as the HyperFleet API's (HYPERFLEET-1756).
-// The periodic refresh drops retired keys. A Wristband signed with a key
-// identifier the service has not seen triggers an extra refresh, so a rotated
-// key works at once. A new key cannot be told from a junk one before the
-// refresh, so the extra refreshes share one budget: a burst of
-// unknownKIDRefreshBurst, refilled at one per unknownKIDRefreshEvery. A
-// request waits at most unknownKIDWaitMax for a refresh slot and the refresh
-// itself; when the next slot is further away it fails at once with 401.
+// Key-set refresh policy. The periodic refresh drops retired keys. A
+// Wristband signed with a key identifier the service has not seen triggers an
+// extra refresh, so a rotated key works at once. A new key cannot be told
+// from a junk one before the refresh, so the extra refreshes share one
+// budget: a burst of unknownKIDRefreshBurst, refilled at one per
+// unknownKIDRefreshEvery. A request waits at most unknownKIDWaitMax for a
+// refresh slot and the refresh itself; when the next slot is further away it
+// fails at once with 401.
 const (
 	jwksRefreshInterval    = time.Hour
 	unknownKIDRefreshEvery = 30 * time.Second
@@ -142,7 +142,12 @@ func NewValidator(ctx context.Context, opts Options) (*Validator, error) {
 		cancel()
 		return nil, fmt.Errorf("loading the Wristband key set from %s: %w", opts.JWKSURL, err)
 	}
-	if loaded, err := keys.Storage().KeyReadAll(ctx); err != nil || len(loaded) == 0 {
+	loaded, err := keys.Storage().KeyReadAll(ctx)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("reading the Wristband key set from %s: %w", opts.JWKSURL, err)
+	}
+	if len(loaded) == 0 {
 		cancel()
 		return nil, fmt.Errorf("the Wristband key set at %s holds no key", opts.JWKSURL)
 	}
@@ -226,12 +231,8 @@ func (v *Validator) keyForToken(ctx context.Context) jwt.Keyfunc {
 		if !ok || kid == "" {
 			return nil, errMissingKID
 		}
-		alg, ok := token.Header["alg"].(string)
-		if !ok {
-			return v.keys.KeyfuncCtx(ctx)(token) // the library rejects it with its own error
-		}
 		shared := v.keys.KeyfuncCtx(context.WithoutCancel(ctx))
-		lookup := v.lookups.DoChan(kid+"\x00"+alg, func() (any, error) { return shared(token) })
+		lookup := v.lookups.DoChan(kid+"\x00"+token.Method.Alg(), func() (any, error) { return shared(token) })
 		select {
 		case result := <-lookup:
 			return result.Val, result.Err

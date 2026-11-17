@@ -16,6 +16,28 @@ func assertField(t *testing.T, problem errors.Problem, field string) {
 	if len(problem.Errors) != 1 || problem.Errors[0].Field != field || problem.Errors[0].Message == "" {
 		t.Fatalf("errors = %+v, want one entry for field %q", problem.Errors, field)
 	}
+	assertNoInternals(t, problem)
+}
+
+// internalMarkers are fragments of Go and store error text that must not reach
+// a client: decoder messages, Go type names, and store field names.
+var internalMarkers = []string{"json:", "Go ", "desire.", "v1.", "managementCluster", "DesireType", "ApplySpec"}
+
+// assertNoInternals checks that a problem's detail and messages carry no
+// internal error text.
+func assertNoInternals(t *testing.T, problem errors.Problem) {
+	t.Helper()
+	texts := []string{problem.Detail}
+	for _, detail := range problem.Errors {
+		texts = append(texts, detail.Message)
+	}
+	for _, text := range texts {
+		for _, marker := range internalMarkers {
+			if strings.Contains(text, marker) {
+				t.Fatalf("problem text %q exposes internal detail %q", text, marker)
+			}
+		}
+	}
 }
 
 func TestParseDesireID(t *testing.T) {
@@ -69,6 +91,7 @@ func TestInvalidWriteBodies(t *testing.T) {
 	}{
 		{"invalid JSON", applyID, `{"resource_id":`, errors.CodeInvalidBody, fieldBody},
 		{"array body", applyID, `[]`, errors.CodeInvalidBody, fieldBody},
+		{"trailing data", applyID, applyBody("coredns") + `{}`, errors.CodeInvalidBody, fieldBody},
 		{"missing resource_id", otherRead, `{"target_version":"v1"}`, errors.CodeRequired, fieldResourceID},
 		{"null owner on apply", applyID, `{"owner":null,` + applyBody("coredns")[1:], errors.CodeInvalidField, fieldOwner},
 		{"empty resource_id", otherRead, `{"resource_id":"","target_version":"v1"}`,
@@ -94,6 +117,17 @@ func TestInvalidWriteBodies(t *testing.T) {
 			a.do(t, http.MethodGet, desirePath(tc.id), a.adapter(t), "").expect(t, http.StatusNotFound, errors.CodeNotFound)
 		})
 	}
+}
+
+func TestBodyAtTheLimitIsAccepted(t *testing.T) {
+	a := newTestAPI(t)
+	const frame = `{"resource_id":""}`
+	body := `{"resource_id":"` + strings.Repeat("x", maxBodyBytes-len(frame)) + `"}`
+	if len(body) != maxBodyBytes {
+		t.Fatalf("body is %d bytes, want %d", len(body), maxBodyBytes)
+	}
+
+	a.do(t, http.MethodPut, desirePath(deleteID), a.adapter(t), body).expect(t, http.StatusCreated, "")
 }
 
 func TestBodyOverTheLimitIsRejected(t *testing.T) {
@@ -134,6 +168,9 @@ func TestInvalidStatusBodies(t *testing.T) {
 		{"missing status", applyID, `{"version":1}`, errors.CodeRequired, fieldStatus},
 		{"string status", readID, `{"status":"done"}`, errors.CodeInvalidField, fieldStatus},
 		{"malformed conditions", applyID, `{"version":1,"status":{"conditions":"x"}}`, errors.CodeInvalidField, fieldStatus},
+		{"malformed condition time", applyID, `{"version":1,"status":{"conditions":[{"lastTransitionTime":"x"}]}}`,
+			errors.CodeInvalidField, fieldStatus},
+		{"malformed read conditions", readID, `{"status":{"conditions":"x"}}`, errors.CodeInvalidField, fieldStatus},
 		{"missing version", applyID, `{"status":{}}`, errors.CodeRequired, fieldVersion},
 		{"zero version", applyID, `{"version":0,"status":{}}`, errors.CodeInvalidField, fieldVersion},
 		{"invalid JSON", applyID, `{"status":`, errors.CodeInvalidBody, fieldBody},

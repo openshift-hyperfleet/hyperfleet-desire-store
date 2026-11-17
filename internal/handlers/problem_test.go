@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	stderrors "errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -126,7 +127,7 @@ func TestWriteProblemHasNoTraceWithoutContext(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/x", nil)
 	handleError(recorder, request, slog.New(slog.NewTextHandler(io.Discard, nil)),
-		errors.Unavailable(errors.CodeUnavailable, "busy", nil))
+		errors.Unavailable(errors.CodeUnavailable, "busy"))
 
 	if recorder.Code != http.StatusServiceUnavailable || recorder.Header().Get("Content-Type") != problemContentType {
 		t.Fatalf("status/content type = %d/%q", recorder.Code, recorder.Header().Get("Content-Type"))
@@ -140,16 +141,31 @@ func TestWriteProblemHasNoTraceWithoutContext(t *testing.T) {
 	}
 }
 
+// TestClientErrorsAreLogged checks the decoded log record of a client error.
+// The cause goes to the log and never to the problem body.
 func TestClientErrorsAreLogged(t *testing.T) {
 	var logs strings.Builder
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPut, "/x", nil)
-	handleError(recorder, request, slog.New(slog.NewTextHandler(&logs, nil)),
-		errors.Invalid(errors.CodeRequired, fieldResourceID, errors.ConstraintRequired, "resource_id is required"))
+	const cause = "json: cannot unmarshal string into Go value"
+	handleError(recorder, request, slog.New(slog.NewJSONHandler(&logs, nil)),
+		errors.Invalid(errors.CodeRequired, fieldResourceID, errors.ConstraintRequired, "resource_id is required").
+			WithCause(stderrors.New(cause)))
 
-	for _, want := range []string{"level=INFO", "request rejected", "error_code=" + errors.CodeRequired, "method=PUT"} {
-		if !strings.Contains(logs.String(), want) {
-			t.Fatalf("log %q does not contain %q", logs.String(), want)
+	var record map[string]any
+	if err := json.Unmarshal([]byte(logs.String()), &record); err != nil {
+		t.Fatalf("decoding the log record %q: %v", logs.String(), err)
+	}
+	want := map[string]any{
+		"level": "INFO", "msg": "request rejected", "error_code": errors.CodeRequired, "method": http.MethodPut,
+		"cause": cause,
+	}
+	for field, value := range want {
+		if record[field] != value {
+			t.Fatalf("log field %s = %v, want %v (record %v)", field, record[field], value, record)
 		}
+	}
+	if strings.Contains(recorder.Body.String(), cause) {
+		t.Fatalf("problem body %s carries the cause", recorder.Body.String())
 	}
 }

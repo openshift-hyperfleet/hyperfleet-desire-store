@@ -10,12 +10,17 @@ import (
 
 	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/auth/authtest"
 	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/errors"
+	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/services"
 )
 
 const (
 	applyID  = "apply:apps:deployments:kube-system:coredns"
 	readID   = "read:apps:deployments:kube-system:coredns"
 	deleteID = "delete:apps:deployments:kube-system:coredns"
+
+	// fieldGeneration is a response-only member, so the decoders have no
+	// constant for it.
+	fieldGeneration = "generation"
 )
 
 func keys(object map[string]any) []string {
@@ -56,8 +61,8 @@ func TestWriteAndGetEachType(t *testing.T) {
 			t.Fatalf("apply %s = %v, want %v", field, object[field], value)
 		}
 	}
-	if numberField(t, object, fieldVersion) != 1 || numberField(t, object, "generation") != 1 {
-		t.Fatalf("apply version/generation = %v/%v, want 1/1", object[fieldVersion], object["generation"])
+	if numberField(t, object, fieldVersion) != 1 || numberField(t, object, fieldGeneration) != 1 {
+		t.Fatalf("apply version/generation = %v/%v, want 1/1", object[fieldVersion], object[fieldGeneration])
 	}
 	if _, ok := object[fieldKubeContent]; !ok {
 		t.Fatal("an ApplyDesire must carry kubeContent")
@@ -108,8 +113,8 @@ func TestApplyUpdate(t *testing.T) {
 	updated := a.do(t, http.MethodPut, desirePath(applyID), adapter, withVersion(changed, 1))
 	updated.expect(t, http.StatusOK, "")
 	object := updated.object(t)
-	if numberField(t, object, fieldVersion) != 2 || numberField(t, object, "generation") != 2 {
-		t.Fatalf("after a changed update version/generation = %v/%v, want 2/2", object[fieldVersion], object["generation"])
+	if numberField(t, object, fieldVersion) != 2 || numberField(t, object, fieldGeneration) != 2 {
+		t.Fatalf("after a changed update version/generation = %v/%v, want 2/2", object[fieldVersion], object[fieldGeneration])
 	}
 
 	absent := "apply::configmaps:default:missing"
@@ -133,8 +138,8 @@ func TestStatusWrites(t *testing.T) {
 		t.Fatalf("a status write returned a body: %s", res.body)
 	}
 	apply := a.do(t, http.MethodGet, desirePath(applyID), adapter, "").object(t)
-	if numberField(t, apply, fieldVersion) != 2 || numberField(t, apply, "generation") != 1 {
-		t.Fatalf("after a status write version/generation = %v/%v, want 2/1", apply[fieldVersion], apply["generation"])
+	if numberField(t, apply, fieldVersion) != 2 || numberField(t, apply, fieldGeneration) != 1 {
+		t.Fatalf("after a status write version/generation = %v/%v, want 2/1", apply[fieldVersion], apply[fieldGeneration])
 	}
 	if !strings.Contains(fmt.Sprint(apply[fieldStatus]), "Applied") {
 		t.Fatalf("status = %v, want the Applied condition", apply[fieldStatus])
@@ -317,11 +322,11 @@ func TestSweeper(t *testing.T) {
 		expect(t, http.StatusConflict, errors.CodeOwnerConflict)
 }
 
-// referenceID checks that a list item carries only the identity fields and
-// the version, and returns its desire identifier.
 // typeRead is the wire value of a ReadDesire type.
 const typeRead = "read"
 
+// referenceID checks that a list item carries only the identity fields and
+// the version, and returns its desire identifier.
 func referenceID(t *testing.T, item any) string {
 	t.Helper()
 	ref, ok := item.(map[string]any)
@@ -439,6 +444,12 @@ func TestListOfAnEmptyPartition(t *testing.T) {
 	if string(res.body) != `{"items":[]}` {
 		t.Fatalf("empty list = %s, want {\"items\":[]}", res.body)
 	}
+}
+
+func TestListAcceptsTheMaximumLimit(t *testing.T) {
+	a := newTestAPI(t)
+	path := fmt.Sprintf("%s?limit=%d", listPath(), services.MaxListLimit)
+	a.do(t, http.MethodGet, path, a.adapter(t), "").expect(t, http.StatusOK, "")
 }
 
 func TestListQueryValidation(t *testing.T) {

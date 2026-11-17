@@ -17,8 +17,8 @@ const (
 	timestampLayout    = "2006-01-02T15:04:05.000Z07:00"
 )
 
-// handleError logs a failed request and writes it as an RFC 9457 problem. A
-// server-side failure is logged with its cause at error level; a client error
+// handleError logs a failed request, with its cause, and writes it as an RFC
+// 9457 problem. A server-side failure is logged at error level; a client error
 // is an expected condition, which the logging specification logs below it.
 func handleError(w http.ResponseWriter, r *http.Request, log *slog.Logger, err *errors.ServiceError) {
 	ctx := r.Context()
@@ -26,8 +26,11 @@ func handleError(w http.ResponseWriter, r *http.Request, log *slog.Logger, err *
 		"status", err.HTTPCode, "error_code", err.Code, "error_type", errors.TypeBase + err.Type.Slug,
 		"error", err.Reason, "method", r.Method, "path", r.URL.EscapedPath(),
 	}
+	if err.Cause != nil {
+		attrs = append(attrs, "cause", err.Cause)
+	}
 	if err.HTTPCode >= http.StatusInternalServerError {
-		log.ErrorContext(ctx, "request failed", append(attrs, "cause", err.Cause)...)
+		log.ErrorContext(ctx, "request failed", attrs...)
 	} else {
 		log.InfoContext(ctx, "request rejected", attrs...)
 	}

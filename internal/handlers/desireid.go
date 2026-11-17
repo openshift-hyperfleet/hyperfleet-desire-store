@@ -15,7 +15,8 @@ const fieldDesireID = "desire-id"
 // included, is the name. The shared store's identity validation then checks
 // every field. It is stricter than the DesireId pattern of the REST v1
 // specification, so an identifier it accepts also matches that pattern, and
-// the store never sees an identity it would reject.
+// the store never sees an identity it would reject. Its message names the
+// store's fields, so the client gets a fixed one.
 func parseDesireID(raw, partition string) (desire.Identity, *errors.ServiceError) {
 	segments := strings.SplitN(raw, ":", 5)
 	if len(segments) != 5 || segments[4] == "" {
@@ -32,7 +33,8 @@ func parseDesireID(raw, partition string) (desire.Identity, *errors.ServiceError
 	}
 	if err := id.Validate(); err != nil {
 		return desire.Identity{}, errors.Invalid(errors.CodeInvalidPath, fieldDesireID, errors.ConstraintPattern,
-			"desire-id is not a valid desire identity: "+err.Error())
+			"desire-id type must be apply, delete, or read, and its other segments valid Kubernetes names").
+			WithCause(err)
 	}
 	return id, nil
 }

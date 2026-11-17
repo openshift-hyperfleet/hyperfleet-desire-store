@@ -241,7 +241,7 @@ func decodeStatus(body io.Reader, id desire.Identity) (services.StatusInput, *er
 	}
 	if err := json.Unmarshal(raw, target); err != nil {
 		return services.StatusInput{}, errors.Invalid(errors.CodeInvalidField, fieldStatus, errors.ConstraintFormat,
-			"status does not match the desire status shape: "+err.Error())
+			"status does not match the desire status shape").WithCause(err)
 	}
 
 	if id.Type == desire.TypeRead {

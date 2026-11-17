@@ -183,8 +183,8 @@ func ApplyEnv(flags *pflag.FlagSet) error {
 		if value == "" {
 			return
 		}
-		// The graceful shutdown standard writes SHUTDOWN_TIMEOUT as a bare
-		// number of seconds; a Go duration string works too.
+		// A bare number is read as seconds, so SHUTDOWN_TIMEOUT=20 works next
+		// to SHUTDOWN_TIMEOUT=20s.
 		if _, err := strconv.Atoi(value); err == nil && env == envShutdownTimeout {
 			value += "s"
 		}

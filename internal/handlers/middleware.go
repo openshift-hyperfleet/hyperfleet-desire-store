@@ -75,8 +75,6 @@ func (w *unmatchedWriter) WriteHeader(status int) {
 		return
 	}
 	w.replaced = true
-	// http.Error set this for its plain-text body, which is not sent.
-	w.Header().Del("X-Content-Type-Options")
 	handleError(w.ResponseWriter, w.r, w.log, problem)
 }
 

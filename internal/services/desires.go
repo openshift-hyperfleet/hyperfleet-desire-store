@@ -253,22 +253,24 @@ func (s *desireService) authorize(caller auth.Caller, id desire.Identity, op ope
 func (s *desireService) references(ctx context.Context, partition string, desireType desire.DesireType) (
 	[]Reference, error,
 ) {
-	var refs []Reference
 	switch desireType {
 	case desire.TypeApply:
 		desires, err := s.store.ListApplyDesires(ctx, partition)
+		refs := make([]Reference, 0, len(desires))
 		for _, d := range desires {
 			refs = append(refs, Reference{Identity: d.Identity, Version: d.Version})
 		}
 		return refs, err
 	case desire.TypeDelete:
 		desires, err := s.store.ListDeleteDesires(ctx, partition)
+		refs := make([]Reference, 0, len(desires))
 		for _, d := range desires {
 			refs = append(refs, Reference{Identity: d.Identity, Version: d.Version})
 		}
 		return refs, err
 	case desire.TypeRead:
 		desires, err := s.store.ListReadDesires(ctx, partition)
+		refs := make([]Reference, 0, len(desires))
 		for _, d := range desires {
 			refs = append(refs, Reference{Identity: d.Identity, Version: d.Version, TargetVersion: d.TargetVersion})
 		}
@@ -325,9 +327,9 @@ func storeError(err error, id desire.Identity, expected int64, actual *int64) *e
 		return errors.Conflict(errors.CodeOwnerConflict, "A different caller owns this object.")
 	case stderrors.Is(err, desire.ErrAborted):
 		return errors.Unavailable(errors.CodeUnavailable,
-			"A concurrent change aborted the request. Retry with backoff.", err)
+			"A concurrent change aborted the request. Retry with backoff.").WithCause(err)
 	default:
-		return errors.Unavailable(errors.CodeDependencyFailure, "The desire store is unavailable.", err)
+		return errors.Unavailable(errors.CodeDependencyFailure, "The desire store is unavailable.").WithCause(err)
 	}
 }
 
@@ -348,7 +350,7 @@ func alreadyExistsReason(desireType desire.DesireType) string {
 
 // invalidDesire turns a failed shared-store validation into a 400.
 func invalidDesire(err error) *errors.ServiceError {
-	return errors.Invalid(errors.CodeInvalidField, fieldBody, "", "the desire is invalid: "+err.Error())
+	return errors.Invalid(errors.CodeInvalidField, fieldBody, "", "the desire is invalid").WithCause(err)
 }
 
 // unknownType reports a desire type the service does not serve. The handlers

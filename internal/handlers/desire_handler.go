@@ -37,8 +37,8 @@ func (h *DesireHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	list, encodeErr := presenters.PresentList(page)
 	if encodeErr != nil {
-		handleError(w, r, h.log, errors.Unavailable(errors.CodeDependencyFailure, "The desire list could not be paged.",
-			encodeErr))
+		handleError(w, r, h.log, errors.Unavailable(errors.CodeDependencyFailure, "The desire list could not be paged.").
+			WithCause(encodeErr))
 		return
 	}
 	writeBody(w, r, h.log, http.StatusOK, jsonContentType, list)

@@ -69,8 +69,9 @@ type ValidationDetail struct {
 	Message    string `json:"message"`
 }
 
-// ServiceError is a failed request. Cause is logged for a server-side failure
-// and never sent to the client.
+// ServiceError is a failed request. Reason and Details go to the client and
+// carry no internal error text; Cause, set with WithCause, goes only to the
+// log.
 type ServiceError struct {
 	HTTPCode        int
 	Type            ProblemType
@@ -168,7 +169,8 @@ func EndpointNotFound() *ServiceError {
 	}
 }
 
-// MethodNotAllowed is a 405 for a route that does not serve the method.
+// MethodNotAllowed is a 405 for a route that does not serve the method. It has
+// no code because the Error Model standard defines none for a 405.
 func MethodNotAllowed(method string) *ServiceError {
 	return &ServiceError{
 		HTTPCode: http.StatusMethodNotAllowed, Type: TypeMethodNotAllowed,
@@ -195,9 +197,13 @@ func VersionConflict(expected int64, actual *int64) *ServiceError {
 	}
 }
 
-// Unavailable is a 503 with the cause kept for the log.
-func Unavailable(code, reason string, cause error) *ServiceError {
-	return &ServiceError{
-		HTTPCode: http.StatusServiceUnavailable, Type: TypeUnavailable, Code: code, Reason: reason, Cause: cause,
-	}
+// Unavailable is a 503.
+func Unavailable(code, reason string) *ServiceError {
+	return &ServiceError{HTTPCode: http.StatusServiceUnavailable, Type: TypeUnavailable, Code: code, Reason: reason}
+}
+
+// WithCause sets the error that caused e and returns e.
+func (e *ServiceError) WithCause(cause error) *ServiceError {
+	e.Cause = cause
+	return e
 }
