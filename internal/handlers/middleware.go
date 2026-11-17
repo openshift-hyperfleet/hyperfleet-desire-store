@@ -35,50 +35,44 @@ func authenticate(validator *auth.Validator, log *slog.Logger, next http.Handler
 	})
 }
 
-// problemsForUnmatched answers a request that matches no route with an Error
-// Model problem instead of the plain-text 404 or 405 that ServeMux writes.
+// notFoundProblems answers a request that matches no route with an Error
+// Model problem instead of ServeMux's plain-text 404. A request that matches
+// a route with another method keeps ServeMux's 405 and its Allow header, as
+// in the HyperFleet API: the Error Model defines no problem for a 405.
 //
 // It is not a catch-all "/" route: ServeMux falls back to a less specific
 // pattern when only the method differs, which would turn every 405 into a
 // 404. Instead mux.Handler reports whether any route matched, and only an
-// unmatched request has its status rewritten. ServeMux sets the Allow header
-// of a 405 before writing the status, so the problem response keeps it.
-func problemsForUnmatched(mux *http.ServeMux, log *slog.Logger) http.Handler {
+// unmatched request has its 404 rewritten.
+func notFoundProblems(mux *http.ServeMux, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, pattern := mux.Handler(r); pattern != "" {
 			mux.ServeHTTP(w, r)
 			return
 		}
-		mux.ServeHTTP(&unmatchedWriter{ResponseWriter: w, r: r, log: log}, r)
+		mux.ServeHTTP(&notFoundWriter{ResponseWriter: w, r: r, log: log}, r)
 	})
 }
 
-// unmatchedWriter turns the 404 or 405 that ServeMux writes for an unmatched
-// request into a problem and drops ServeMux's plain-text body. Any other
-// status passes through unchanged.
-type unmatchedWriter struct {
+// notFoundWriter turns ServeMux's 404 into a problem and drops its
+// plain-text body. Any other status passes through unchanged.
+type notFoundWriter struct {
 	http.ResponseWriter
 	r        *http.Request
 	log      *slog.Logger
 	replaced bool
 }
 
-func (w *unmatchedWriter) WriteHeader(status int) {
-	var problem *errors.ServiceError
-	switch status {
-	case http.StatusNotFound:
-		problem = errors.EndpointNotFound()
-	case http.StatusMethodNotAllowed:
-		problem = errors.MethodNotAllowed(w.r.Method)
-	default:
+func (w *notFoundWriter) WriteHeader(status int) {
+	if status != http.StatusNotFound {
 		w.ResponseWriter.WriteHeader(status)
 		return
 	}
 	w.replaced = true
-	handleError(w.ResponseWriter, w.r, w.log, problem)
+	handleError(w.ResponseWriter, w.r, w.log, errors.EndpointNotFound())
 }
 
-func (w *unmatchedWriter) Write(b []byte) (int, error) {
+func (w *notFoundWriter) Write(b []byte) (int, error) {
 	if w.replaced {
 		return len(b), nil
 	}

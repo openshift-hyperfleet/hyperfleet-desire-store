@@ -51,7 +51,6 @@ type ProblemType struct{ Slug, Title string }
 var (
 	TypeValidation         = ProblemType{"validation-error", "Validation Error"}
 	TypeInvalidRequest     = ProblemType{"invalid-request", "Invalid Request"}
-	TypeMethodNotAllowed   = ProblemType{"invalid-request", "Method Not Allowed"}
 	TypeAuthRequired       = ProblemType{"authentication-required", "Authentication Required"}
 	TypeInvalidCredentials = ProblemType{"invalid-credentials", "Invalid Credentials"}
 	TypePermissionDenied   = ProblemType{"permission-denied", "Permission Denied"}
@@ -166,15 +165,6 @@ func EndpointNotFound() *ServiceError {
 	return &ServiceError{
 		HTTPCode: http.StatusNotFound, Type: TypeEndpointNotFound, Code: CodeEndpointNotFound,
 		Reason: "The requested endpoint does not exist.",
-	}
-}
-
-// MethodNotAllowed is a 405 for a route that does not serve the method. It has
-// no code because the Error Model standard defines none for a 405.
-func MethodNotAllowed(method string) *ServiceError {
-	return &ServiceError{
-		HTTPCode: http.StatusMethodNotAllowed, Type: TypeMethodNotAllowed,
-		Reason: "Method " + method + " is not allowed on this route.",
 	}
 }
 

@@ -17,10 +17,6 @@ const (
 	applyID  = "apply:apps:deployments:kube-system:coredns"
 	readID   = "read:apps:deployments:kube-system:coredns"
 	deleteID = "delete:apps:deployments:kube-system:coredns"
-
-	// fieldGeneration is a response-only member, so the decoders have no
-	// constant for it.
-	fieldGeneration = "generation"
 )
 
 func keys(object map[string]any) []string {
@@ -61,9 +57,7 @@ func TestWriteAndGetEachType(t *testing.T) {
 			t.Fatalf("apply %s = %v, want %v", field, object[field], value)
 		}
 	}
-	if numberField(t, object, fieldVersion) != 1 || numberField(t, object, fieldGeneration) != 1 {
-		t.Fatalf("apply version/generation = %v/%v, want 1/1", object[fieldVersion], object[fieldGeneration])
-	}
+	assertVersionGeneration(t, object, 1, 1)
 	if _, ok := object[fieldKubeContent]; !ok {
 		t.Fatal("an ApplyDesire must carry kubeContent")
 	}
@@ -113,9 +107,7 @@ func TestApplyUpdate(t *testing.T) {
 	updated := a.do(t, http.MethodPut, desirePath(applyID), adapter, withVersion(changed, 1))
 	updated.expect(t, http.StatusOK, "")
 	object := updated.object(t)
-	if numberField(t, object, fieldVersion) != 2 || numberField(t, object, fieldGeneration) != 2 {
-		t.Fatalf("after a changed update version/generation = %v/%v, want 2/2", object[fieldVersion], object[fieldGeneration])
-	}
+	assertVersionGeneration(t, object, 2, 2)
 
 	absent := "apply::configmaps:default:missing"
 	a.do(t, http.MethodPut, desirePath(absent), adapter,
@@ -138,9 +130,7 @@ func TestStatusWrites(t *testing.T) {
 		t.Fatalf("a status write returned a body: %s", res.body)
 	}
 	apply := a.do(t, http.MethodGet, desirePath(applyID), adapter, "").object(t)
-	if numberField(t, apply, fieldVersion) != 2 || numberField(t, apply, fieldGeneration) != 1 {
-		t.Fatalf("after a status write version/generation = %v/%v, want 2/1", apply[fieldVersion], apply[fieldGeneration])
-	}
+	assertVersionGeneration(t, apply, 2, 1)
 	if !strings.Contains(fmt.Sprint(apply[fieldStatus]), "Applied") {
 		t.Fatalf("status = %v, want the Applied condition", apply[fieldStatus])
 	}

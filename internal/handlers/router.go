@@ -27,5 +27,5 @@ func NewRouter(service services.DesireService, validator *auth.Validator, log *s
 	mux.HandleFunc("DELETE "+desiresPath+"/{id}", desires.Delete)
 	mux.HandleFunc("PUT "+desiresPath+"/{id}/status", desires.WriteStatus)
 
-	return traceContext(authenticate(validator, log, problemsForUnmatched(mux, log)))
+	return traceContext(authenticate(validator, log, notFoundProblems(mux, log)))
 }

@@ -222,3 +222,16 @@ func numberField(t *testing.T, object map[string]any, field string) int64 {
 	}
 	return value
 }
+
+// fieldGeneration is a response-only member, so the decoders have no constant
+// for it.
+const fieldGeneration = "generation"
+
+// assertVersionGeneration checks a desire's version and generation.
+func assertVersionGeneration(t *testing.T, object map[string]any, version, generation int64) {
+	t.Helper()
+	gotVersion, gotGeneration := numberField(t, object, fieldVersion), numberField(t, object, fieldGeneration)
+	if gotVersion != version || gotGeneration != generation {
+		t.Fatalf("version/generation = %d/%d, want %d/%d", gotVersion, gotGeneration, version, generation)
+	}
+}

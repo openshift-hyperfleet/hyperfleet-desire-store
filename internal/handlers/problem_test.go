@@ -103,7 +103,8 @@ func TestUnknownRoutesAndMethods(t *testing.T) {
 	}
 	a.do(t, http.MethodGet, "/no/such/path", "", "").expect(t, http.StatusUnauthorized, auth.CodeMissing)
 
-	// ServeMux serves HEAD wherever GET is routed, so Allow lists it too.
+	// A wrong method keeps ServeMux's plain-text 405. ServeMux serves HEAD
+	// wherever GET is routed, so Allow lists it too.
 	tests := map[string]struct{ method, path, allow string }{
 		"collection":   {http.MethodPost, listPath(), "GET, HEAD"},
 		"desire":       {http.MethodPatch, desirePath(applyID), "DELETE, GET, HEAD, PUT"},
@@ -116,8 +117,8 @@ func TestUnknownRoutesAndMethods(t *testing.T) {
 			if got := res.header.Get("Allow"); got != tc.allow {
 				t.Fatalf("Allow = %q, want %q", got, tc.allow)
 			}
-			if problem := res.problem(t); problem.Status != http.StatusMethodNotAllowed {
-				t.Fatalf("problem status = %d, want 405", problem.Status)
+			if got := res.header.Get("Content-Type"); got == problemContentType {
+				t.Fatalf("Content-Type = %q, want ServeMux's plain-text 405", got)
 			}
 		})
 	}
