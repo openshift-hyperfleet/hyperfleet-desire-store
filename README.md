@@ -16,8 +16,14 @@ gracefully, and builds a FIPS-compliant image.
 
 The REST v1 service is implemented in the same layers as hyperfleet-api:
 `internal/handlers` decodes requests and writes responses, `internal/services`
-holds the business rules, `internal/presenters` builds the wire shapes, and
-`internal/errors` defines the one error type. It validates Wristbands,
+holds the business rules, `internal/presenters` fills the wire shapes, and
+`internal/errors` defines the one error type. The request and response types
+are generated from the
+[OpenAPI contract](https://github.com/openshift-hyperfleet/hyperfleet-desire-store-spec)
+with `oapi-codegen` into `pkg/api/openapi`, as ADR-0003 requires; the
+generated code is not committed. Every request is checked against the
+contract by oapi-codegen's `nethttp-middleware` request validator before a
+handler runs; the handlers keep only the rules the contract states in prose. It validates Wristbands,
 authorizes callers from the Wristband claims, serves the five operations, and
 answers errors in the Error Model format. Its tests run
 against the shared store interface with the Applier's in-memory store.
@@ -30,6 +36,7 @@ it.
 ## Quick start
 
 ```bash
+make generate   # OpenAPI types and client into pkg/api/openapi; build, test, vet, and lint run it
 make build      # bin/hyperfleet-desire-store
 make run        # serve with text logs on :8000 and :8080; set the required settings first
 make test       # unit tests with the race detector
@@ -110,10 +117,12 @@ internal/config/              # flags, environment, validation, logger wiring
 internal/auth/                # Wristband validation; authtest/ mints Wristbands for tests
 internal/handlers/            # HTTP: routes, middleware, request decoding, responses
 internal/services/            # business rules: caller permissions, store calls, store errors
-internal/presenters/          # REST v1 wire shapes and list cursors
+internal/presenters/          # stored desires to REST v1 wire shapes, list cursors
+openapi/                      # oapi-codegen config and overlay; make generate copies the contract here
+pkg/api/openapi/              # generated REST v1 types and client (not committed)
 internal/errors/              # ServiceError and its RFC 9457 problem form
 internal/server/              # data plane and health listeners, shutdown
-tools/                        # pinned Go tools (golangci-lint, yq)
+tools/                        # pinned Go tools (golangci-lint, yq, oapi-codegen)
 .tekton/                      # Konflux PipelineRuns for the image build
 .hyperfleet.yaml              # repository type, read by HyperFleet tooling
 ```

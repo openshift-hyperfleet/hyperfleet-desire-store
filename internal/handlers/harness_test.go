@@ -56,11 +56,11 @@ func newTestAPI(t *testing.T, opts ...func(*apiOptions)) *testAPI {
 	t.Cleanup(validator.Close)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return &testAPI{
-		signer:  signer,
-		store:   options.store,
-		handler: NewRouter(services.NewDesireService(options.store, authtest.SweeperID), validator, logger),
+	handler, err := NewRouter(services.NewDesireService(options.store, authtest.SweeperID), validator, logger)
+	if err != nil {
+		t.Fatalf("NewRouter() error: %v", err)
 	}
+	return &testAPI{signer: signer, store: options.store, handler: handler}
 }
 
 func (a *testAPI) token(t *testing.T, class auth.CallerClass, identity, partition string) string {

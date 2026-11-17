@@ -15,9 +15,14 @@ import (
 const desiresPath = "/api/hyperfleet/desire-store/v1/partitions/{partition}/desires"
 
 // NewRouter returns the data-plane handler: the REST v1 routes behind trace
-// propagation and Wristband authentication. Every path, unknown ones
-// included, requires a valid Wristband.
-func NewRouter(service services.DesireService, validator *auth.Validator, log *slog.Logger) http.Handler {
+// propagation, Wristband authentication, and validation against the REST v1
+// contract. Every path, unknown ones included, requires a valid Wristband, so
+// an unauthenticated request gets 401 before any validation.
+func NewRouter(service services.DesireService, validator *auth.Validator, log *slog.Logger) (http.Handler, error) {
+	contract, err := parseContract()
+	if err != nil {
+		return nil, err
+	}
 	desires := NewDesireHandler(service, log)
 
 	mux := http.NewServeMux()
@@ -27,5 +32,5 @@ func NewRouter(service services.DesireService, validator *auth.Validator, log *s
 	mux.HandleFunc("DELETE "+desiresPath+"/{id}", desires.Delete)
 	mux.HandleFunc("PUT "+desiresPath+"/{id}/status", desires.WriteStatus)
 
-	return traceContext(authenticate(validator, log, notFoundProblems(mux, log)))
+	return traceContext(authenticate(validator, log, validateRequests(contract, log, notFoundProblems(mux, log)))), nil
 }

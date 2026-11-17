@@ -57,7 +57,13 @@ func (h *DesireHandler) Get(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, h.log, err)
 		return
 	}
-	writeBody(w, r, h.log, http.StatusOK, jsonContentType, presenters.PresentDesire(stored))
+	body, presentErr := presenters.PresentDesire(stored)
+	if presentErr != nil {
+		handleError(w, r, h.log, errors.Unavailable(errors.CodeDependencyFailure, "The stored desire could not be read.").
+			WithCause(presentErr))
+		return
+	}
+	writeBody(w, r, h.log, http.StatusOK, jsonContentType, body)
 }
 
 // Write serves Write desire: 201 for a create, 200 for an update.
@@ -82,7 +88,14 @@ func (h *DesireHandler) Write(w http.ResponseWriter, r *http.Request) {
 	if created {
 		status = http.StatusCreated
 	}
-	writeBody(w, r, h.log, status, jsonContentType, presenters.PresentDesire(stored))
+
+	body, presentErr := presenters.PresentDesire(stored)
+	if presentErr != nil {
+		handleError(w, r, h.log, errors.Unavailable(errors.CodeDependencyFailure, "The stored desire could not be read.").
+			WithCause(presentErr))
+		return
+	}
+	writeBody(w, r, h.log, status, jsonContentType, body)
 }
 
 // WriteStatus serves Write status.

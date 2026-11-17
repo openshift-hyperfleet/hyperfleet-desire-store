@@ -1,9 +1,7 @@
 package handlers
 
 import (
-	"bytes"
 	"encoding/json"
-	stderrors "errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -14,11 +12,8 @@ import (
 
 	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/errors"
 	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/services"
+	"github.com/openshift-hyperfleet/hyperfleet-desire-store/pkg/api/openapi"
 )
-
-// Request size limit. A desire carries one rendered Kubernetes manifest,
-// which etcd caps at 1.5 MiB; the limit leaves room for the envelope.
-const maxBodyBytes = 2 << 20
 
 // Request fields and query parameters, as problem errors name them.
 const (
@@ -39,35 +34,36 @@ const (
 	fieldManifestName       = "kubeContent.metadata.name"
 )
 
-// readObject reads a request body that must be one JSON object, and returns
-// its members undecoded. A member set to null is kept, so a field the request
-// must not carry is rejected even when its value is null.
-func readObject(body io.Reader) (map[string]json.RawMessage, *errors.ServiceError) {
-	data, err := io.ReadAll(io.LimitReader(body, maxBodyBytes+1))
+// decodeBody decodes a request body, which validateRequests has checked
+// against the contract, into the contract type T. It also returns the body's
+// top-level members, for the rules that depend on whether a member is sent.
+// Members that T does not declare are ignored: the contract lets a newer
+// client send optional additive fields.
+func decodeBody[T any](body io.Reader) (*T, map[string]json.RawMessage, *errors.ServiceError) {
+	data, err := io.ReadAll(body)
 	if err != nil {
-		return nil, errors.Invalid(errors.CodeInvalidBody, fieldBody, errors.ConstraintFormat,
-			"the request body could not be read")
+		return nil, nil, errors.Invalid(errors.CodeInvalidBody, fieldBody, errors.ConstraintFormat,
+			"the request body could not be read").WithCause(err)
 	}
-	if len(data) > maxBodyBytes {
-		return nil, errors.Invalid(errors.CodeInvalidBody, fieldBody, errors.ConstraintMaxLength,
-			fmt.Sprintf("the request body exceeds %d bytes", maxBodyBytes))
-	}
+	// The validator reads only the first JSON value, so trailing data
+	// fails here.
 	var members map[string]json.RawMessage
-	err = json.Unmarshal(data, &members)
-	if _, ok := stderrors.AsType[*json.SyntaxError](err); ok {
-		return nil, errors.Invalid(errors.CodeInvalidBody, fieldBody, errors.ConstraintFormat,
-			"the request body is not valid JSON")
+	if err := json.Unmarshal(data, &members); err != nil {
+		return nil, nil, errors.Invalid(errors.CodeInvalidBody, fieldBody, errors.ConstraintFormat,
+			"the request body is not valid JSON").WithCause(err)
 	}
-	if err != nil || !isObject(data) {
-		return nil, errors.Invalid(errors.CodeInvalidBody, fieldBody, errors.ConstraintFormat,
-			"the request body must be a JSON object")
+	var request T
+	if err := json.Unmarshal(data, &request); err != nil {
+		return nil, nil, errors.Invalid(errors.CodeInvalidBody, fieldBody, errors.ConstraintFormat,
+			"the request body does not match the request schema").WithCause(err)
 	}
-	return members, nil
+	return &request, members, nil
 }
 
-// decodeWrite validates a Write desire body for the identity's type.
+// decodeWrite applies the Write desire rules that the contract states only
+// in prose: owner is never sent, and each desire type has its own fields.
 func decodeWrite(body io.Reader, id desire.Identity) (services.WriteInput, *errors.ServiceError) {
-	members, problem := readObject(body)
+	request, members, problem := decodeBody[openapi.DesireWrite](body)
 	if problem != nil {
 		return services.WriteInput{}, problem
 	}
@@ -75,68 +71,62 @@ func decodeWrite(body io.Reader, id desire.Identity) (services.WriteInput, *erro
 		return services.WriteInput{}, errors.Invalid(errors.CodeInvalidField, fieldOwner, "",
 			"owner must not be sent; the API sets it from the caller")
 	}
-
-	var request services.WriteInput
-	if request.ResourceID, problem = requiredString(members, fieldResourceID); problem != nil {
-		return services.WriteInput{}, problem
+	// TODO(HYPERFLEET-1825): remove this check and the target_version check
+	// below when the service moves to spec v0.2.2, which adds minLength 1 to
+	// both fields (hyperfleet-desire-store-spec#4).
+	if request.ResourceId == "" {
+		return services.WriteInput{}, errors.Invalid(errors.CodeInvalidField, fieldResourceID,
+			errors.ConstraintMinLength, "resource_id must not be empty")
 	}
-	if raw, ok := members[fieldVersion]; ok {
-		if request.Version, problem = bodyInteger(fieldVersion, raw, 0); problem != nil {
-			return services.WriteInput{}, problem
-		}
-	}
+	input := services.WriteInput{ResourceID: request.ResourceId, Version: request.Version}
 
 	switch id.Type {
 	case desire.TypeApply:
-		if request.KubeContent, problem = decodeKubeContent(members); problem == nil {
-			problem = checkKubeContentIdentity(request.KubeContent, id)
-		}
+		input.KubeContent, problem = decodeKubeContent(request.KubeContent, members, id)
 	case desire.TypeRead:
-		if problem = checkNoUpdate(members, id.Type, request.Version); problem == nil {
-			request.TargetVersion, problem = requiredString(members, fieldTargetVersion)
+		problem = checkNoUpdate(members, id.Type, input.Version)
+		if _, ok := members[fieldTargetVersion]; problem == nil && !ok {
+			problem = errors.Invalid(errors.CodeRequired, fieldTargetVersion, errors.ConstraintRequired,
+				"target_version is required")
 		}
+		// TODO(HYPERFLEET-1825): remove with the resource_id check above.
+		if problem == nil && request.TargetVersion == "" {
+			problem = errors.Invalid(errors.CodeInvalidField, fieldTargetVersion, errors.ConstraintMinLength,
+				"target_version must not be empty")
+		}
+		input.TargetVersion = request.TargetVersion
 	case desire.TypeDelete:
-		problem = checkNoUpdate(members, id.Type, request.Version)
+		problem = checkNoUpdate(members, id.Type, input.Version)
 	}
 	if problem != nil {
 		return services.WriteInput{}, problem
 	}
-	return request, nil
+	return input, nil
 }
 
-// requiredString decodes a member that must be a non-empty string.
-func requiredString(members map[string]json.RawMessage, field string) (string, *errors.ServiceError) {
-	raw, ok := members[field]
-	if !ok {
-		return "", errors.Invalid(errors.CodeRequired, field, errors.ConstraintRequired, field+" is required")
-	}
-	var value string
-	if isNull(raw) || json.Unmarshal(raw, &value) != nil {
-		return "", errors.Invalid(errors.CodeInvalidField, field, errors.ConstraintFormat, field+" must be a string")
-	}
-	if value == "" {
-		return "", errors.Invalid(errors.CodeInvalidField, field, errors.ConstraintMinLength, field+" must not be empty")
-	}
-	return value, nil
-}
-
-// decodeKubeContent returns the manifest that an ApplyDesire write requires.
-func decodeKubeContent(members map[string]json.RawMessage) (json.RawMessage, *errors.ServiceError) {
-	kubeContent, ok := members[fieldKubeContent]
-	if !ok {
+// decodeKubeContent returns the manifest that an ApplyDesire write requires,
+// as the bytes the client sent, after it checks the manifest against the
+// path.
+func decodeKubeContent(
+	kubeContent json.RawMessage, members map[string]json.RawMessage, id desire.Identity,
+) ([]byte, *errors.ServiceError) {
+	if _, ok := members[fieldKubeContent]; !ok {
 		return nil, errors.Invalid(errors.CodeRequired, fieldKubeContent, errors.ConstraintRequired,
 			"kubeContent is required for an ApplyDesire")
 	}
-	if !isObject(kubeContent) {
-		return nil, errors.Invalid(errors.CodeInvalidField, fieldKubeContent, errors.ConstraintFormat,
-			"kubeContent must be a JSON object")
+	var manifest map[string]json.RawMessage
+	if err := json.Unmarshal(kubeContent, &manifest); err != nil {
+		return nil, errors.Unprocessable(fieldKubeContent, errors.ConstraintFormat, "kubeContent must be a JSON object")
+	}
+	if problem := checkKubeContentIdentity(manifest, id); problem != nil {
+		return nil, problem
 	}
 	return kubeContent, nil
 }
 
 // checkNoUpdate rejects the fields a ReadDesire or DeleteDesire write must
-// not carry: a manifest, and a non-zero version, since neither type has an
-// update.
+// not carry: a manifest, even a null one, and a non-zero version, since
+// neither type has an update.
 func checkNoUpdate(
 	members map[string]json.RawMessage, desireType desire.DesireType, version int64,
 ) *errors.ServiceError {
@@ -156,11 +146,7 @@ func checkNoUpdate(
 // discovery for the target clusters. Members are matched by their exact
 // names, the way the Kubernetes API server reads them; a case-insensitive
 // struct decode would let a "Metadata" member stand in for "metadata".
-func checkKubeContentIdentity(kubeContent json.RawMessage, id desire.Identity) *errors.ServiceError {
-	var manifest map[string]json.RawMessage
-	if err := json.Unmarshal(kubeContent, &manifest); err != nil {
-		return errors.Unprocessable(fieldKubeContent, errors.ConstraintFormat, "kubeContent must be a JSON object")
-	}
+func checkKubeContentIdentity(manifest map[string]json.RawMessage, id desire.Identity) *errors.ServiceError {
 	apiVersion, problem := manifestString(manifest, "apiVersion", fieldManifestAPIVersion)
 	if problem != nil {
 		return problem
@@ -178,12 +164,11 @@ func checkKubeContentIdentity(kubeContent json.RawMessage, id desire.Identity) *
 				apiVersion, group, id.Group))
 	}
 
+	// A null metadata decodes as an empty one.
 	var metadata map[string]json.RawMessage
-	if raw, ok := manifest["metadata"]; ok && !isNull(raw) {
-		if !isObject(raw) || json.Unmarshal(raw, &metadata) != nil {
-			return errors.Unprocessable(fieldManifestMetadata, errors.ConstraintFormat,
-				"kubeContent.metadata must be a JSON object")
-		}
+	if raw, ok := manifest["metadata"]; ok && json.Unmarshal(raw, &metadata) != nil {
+		return errors.Unprocessable(fieldManifestMetadata, errors.ConstraintFormat,
+			"kubeContent.metadata must be a JSON object")
 	}
 	namespace, problem := manifestString(metadata, "namespace", fieldManifestNamespace)
 	if problem != nil {
@@ -208,91 +193,56 @@ func checkKubeContentIdentity(kubeContent json.RawMessage, id desire.Identity) *
 // null member reads as empty.
 func manifestString(members map[string]json.RawMessage, key, field string) (string, *errors.ServiceError) {
 	raw, ok := members[key]
-	if !ok || isNull(raw) {
+	if !ok {
 		return "", nil
 	}
-	var value string
+	var value *string
 	if json.Unmarshal(raw, &value) != nil {
 		return "", errors.Unprocessable(field, errors.ConstraintFormat, field+" must be a string")
 	}
-	return value, nil
+	if value == nil {
+		return "", nil
+	}
+	return *value, nil
 }
 
-// decodeStatus validates a Write status body for the identity's type.
+// decodeStatus applies the Write status rules that the contract states only
+// in prose: the status has the desire type's shape, and an ApplyDesire or
+// DeleteDesire status write carries a version.
 func decodeStatus(body io.Reader, id desire.Identity) (services.StatusInput, *errors.ServiceError) {
-	members, problem := readObject(body)
+	request, members, problem := decodeBody[openapi.StatusWrite](body)
 	if problem != nil {
 		return services.StatusInput{}, problem
 	}
-	var request services.StatusInput
 
-	raw, ok := members[fieldStatus]
-	if !ok {
-		return services.StatusInput{}, errors.Invalid(errors.CodeRequired, fieldStatus, errors.ConstraintRequired,
-			"status is required")
-	}
-	if !isObject(raw) {
-		return services.StatusInput{}, errors.Invalid(errors.CodeInvalidField, fieldStatus, errors.ConstraintFormat,
-			"status must be a JSON object")
-	}
-	target := any(&request.Status)
+	var input services.StatusInput
+	target := any(&input.Status)
 	if id.Type == desire.TypeRead {
-		target = &request.ReadStatus
+		target = &input.ReadStatus
 	}
-	if err := json.Unmarshal(raw, target); err != nil {
+	if err := json.Unmarshal(request.Status, target); err != nil {
 		return services.StatusInput{}, errors.Invalid(errors.CodeInvalidField, fieldStatus, errors.ConstraintFormat,
 			"status does not match the desire status shape").WithCause(err)
 	}
 
 	if id.Type == desire.TypeRead {
-		return request, nil
+		return input, nil
 	}
-	rawVersion, ok := members[fieldVersion]
-	if !ok {
+	if _, ok := members[fieldVersion]; !ok {
 		return services.StatusInput{}, errors.Invalid(errors.CodeRequired, fieldVersion, errors.ConstraintRequired,
 			fmt.Sprintf("version is required on a %s desire status write", id.Type))
 	}
-	version, problem := bodyInteger(fieldVersion, rawVersion, 1)
-	if problem != nil {
-		return services.StatusInput{}, problem
-	}
-	request.Version = version
-	return request, nil
+	input.Version = request.Version
+	return input, nil
 }
 
-// bodyInteger decodes a JSON integer member that must be at least minimum.
-func bodyInteger(field string, raw json.RawMessage, minimum int64) (int64, *errors.ServiceError) {
-	value, err := strconv.ParseInt(string(bytes.TrimSpace(raw)), 10, 64)
-	if err != nil {
-		return 0, errors.Invalid(errors.CodeInvalidField, field, errors.ConstraintFormat, field+" must be an integer")
-	}
-	if value < minimum {
-		return 0, errors.Invalid(errors.CodeInvalidField, field, errors.ConstraintMin,
-			fmt.Sprintf("%s must be at least %d", field, minimum))
-	}
-	return value, nil
-}
-
-// decodeDeleteVersion reads the required version query parameter of a delete.
+// decodeDeleteVersion reads the version query parameter of a delete, which
+// validateRequests has checked against the contract.
 func decodeDeleteVersion(query url.Values) (int64, *errors.ServiceError) {
-	if !query.Has(fieldVersion) {
-		return 0, errors.Invalid(errors.CodeRequired, fieldVersion, errors.ConstraintRequired, "version is required")
-	}
 	version, err := strconv.ParseInt(query.Get(fieldVersion), 10, 64)
 	if err != nil {
-		return 0, errors.Invalid(errors.CodeInvalidQuery, fieldVersion, errors.ConstraintFormat, "version must be an integer")
-	}
-	if version < 1 {
-		return 0, errors.Invalid(errors.CodeInvalidQuery, fieldVersion, errors.ConstraintMin, "version must be at least 1")
+		return 0, errors.Invalid(errors.CodeInvalidQuery, fieldVersion, errors.ConstraintFormat,
+			"version must be an integer").WithCause(err)
 	}
 	return version, nil
-}
-
-func isObject(raw json.RawMessage) bool {
-	trimmed := bytes.TrimSpace(raw)
-	return len(trimmed) > 0 && trimmed[0] == '{'
-}
-
-func isNull(raw json.RawMessage) bool {
-	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }

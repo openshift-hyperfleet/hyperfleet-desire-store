@@ -104,9 +104,14 @@ func TestInvalidWriteBodies(t *testing.T) {
 		{"read without target_version", otherRead, `{"resource_id":"c"}`, errors.CodeRequired, fieldTargetVersion},
 		{"kubeContent on delete", otherDelete, `{"resource_id":"c","kubeContent":{}}`,
 			errors.CodeInvalidField, fieldKubeContent},
+		{"null kubeContent on delete", otherDelete, `{"resource_id":"c","kubeContent":null}`,
+			errors.CodeInvalidField, fieldKubeContent},
+		{"null kubeContent on read", otherRead, `{"resource_id":"c","target_version":"v1","kubeContent":null}`,
+			errors.CodeInvalidField, fieldKubeContent},
 		{"version on delete", otherDelete, `{"resource_id":"c","version":1}`, errors.CodeInvalidField, fieldVersion},
 		{"negative version", applyID, withVersion(applyBody("coredns"), -1), errors.CodeInvalidField, fieldVersion},
 		{"string version", otherDelete, `{"resource_id":"c","version":"0"}`, errors.CodeInvalidField, fieldVersion},
+		{"null version", applyID, `{"version":null,` + applyBody("coredns")[1:], errors.CodeInvalidField, fieldVersion},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -117,6 +122,17 @@ func TestInvalidWriteBodies(t *testing.T) {
 			a.do(t, http.MethodGet, desirePath(tc.id), a.adapter(t), "").expect(t, http.StatusNotFound, errors.CodeNotFound)
 		})
 	}
+}
+
+// TestUndeclaredMembersAreIgnored checks that a newer client's optional
+// additive field does not fail a write or a status write.
+func TestUndeclaredMembersAreIgnored(t *testing.T) {
+	a := newTestAPI(t)
+	a.do(t, http.MethodPut, desirePath(readID), a.adapter(t), `{"foo":1,`+readBody()[1:]).
+		expect(t, http.StatusCreated, "")
+	a.do(t, http.MethodPut, desirePath(applyID), a.adapter(t), applyBody("coredns")).expect(t, http.StatusCreated, "")
+	a.do(t, http.MethodPut, statusPath(applyID), a.applier(t), `{"foo":1,`+appliedStatus(1)[1:]).
+		expect(t, http.StatusNoContent, "")
 }
 
 func TestBodyAtTheLimitIsAccepted(t *testing.T) {
@@ -173,6 +189,7 @@ func TestInvalidStatusBodies(t *testing.T) {
 		{"malformed read conditions", readID, `{"status":{"conditions":"x"}}`, errors.CodeInvalidField, fieldStatus},
 		{"missing version", applyID, `{"status":{}}`, errors.CodeRequired, fieldVersion},
 		{"zero version", applyID, `{"version":0,"status":{}}`, errors.CodeInvalidField, fieldVersion},
+		{"null version", applyID, `{"version":null,"status":{}}`, errors.CodeInvalidField, fieldVersion},
 		{"invalid JSON", applyID, `{"status":`, errors.CodeInvalidBody, fieldBody},
 	}
 	for _, tc := range tests {
@@ -208,5 +225,25 @@ func TestInvalidDeleteVersions(t *testing.T) {
 			res.expect(t, http.StatusBadRequest, tc.code)
 			assertField(t, res.problem(t), fieldVersion)
 		})
+	}
+}
+
+// TestRequestsAreCheckedAgainstTheContract covers the contract rules that
+// the validator in front of the handlers enforces and no handler repeats.
+func TestRequestsAreCheckedAgainstTheContract(t *testing.T) {
+	a := newTestAPI(t)
+	adapter := a.adapter(t)
+
+	res := a.do(t, http.MethodPut, desirePath(deleteID), adapter, deleteBody(), [2]string{"Content-Type", "text/plain"})
+	res.expect(t, http.StatusBadRequest, errors.CodeInvalidBody)
+	assertField(t, res.problem(t), fieldBody)
+
+	// StatusWrite.version has minimum 1 and is not nullable for every
+	// desire type, so a ReadDesire status write that sends it is checked too.
+	a.do(t, http.MethodPut, desirePath(readID), adapter, readBody()).expect(t, http.StatusCreated, "")
+	for _, body := range []string{`{"version":null,"status":{}}`, `{"version":0,"status":{}}`} {
+		res := a.do(t, http.MethodPut, statusPath(readID), a.applier(t), body)
+		res.expect(t, http.StatusBadRequest, errors.CodeInvalidField)
+		assertField(t, res.problem(t), fieldVersion)
 	}
 }
