@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os/signal"
 	"syscall"
 
@@ -22,21 +23,16 @@ func newServeCommand() *cobra.Command {
 		Short: "Start the Desire Store API server",
 	}
 
-	cfg, err := config.Default()
-	if err != nil {
+	cfg := config.Default()
+	cfg.BindFlags(cmd.Flags())
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		// A malformed environment fails the command instead of being ignored.
-		// Flags are not bound in this case, but --help still works.
-		cmd.SilenceUsage = true
-		cmd.RunE = func(*cobra.Command, []string) error {
+		if err := config.ApplyEnv(cmd.Flags()); err != nil {
+			cmd.SilenceUsage = true
 			return fmt.Errorf("invalid configuration: %w", err)
 		}
-		return cmd
-	}
-
-	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return serve(cmd.Context(), cfg)
 	}
-	cfg.BindFlags(cmd.Flags())
 
 	return cmd
 }
@@ -59,5 +55,9 @@ func serve(ctx context.Context, cfg config.Config) error {
 	shutdownCtx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	return server.New(cfg, logger).Run(shutdownCtx)
+	// The v1 routes are mounted here once the store is wired in; until then
+	// every path is a 404 and the listener only matches the deployment shape.
+	api := http.NewServeMux()
+	opts := server.Options{Addr: cfg.ServerAddr, HealthAddr: cfg.HealthAddr, ShutdownTimeout: cfg.ShutdownTimeout}
+	return server.New(api, opts, logger).Run(shutdownCtx)
 }

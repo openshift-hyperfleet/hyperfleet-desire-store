@@ -71,7 +71,6 @@ docs/
 # Dockerfile copies LICENSE into the runtime image.
 !LICENSE
 .tekton/
-tools/
 OWNERS_ALIASES
 .hyperfleet.yaml
 .pre-commit-config.yaml

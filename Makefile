@@ -41,14 +41,33 @@ TOOL_MOD := tools/go.mod
 gotool = "$(GO)" tool -modfile="$(TOOL_MOD)" $(1)
 GOLANGCI_LINT := $(call gotool,golangci-lint)
 
+# ==== OpenAPI contract ====
+# The contract comes from the spec Go module at the version go.mod pins.
+# make generate copies it to openapi/openapi.yaml and generates the types and
+# client into pkg/api/openapi; neither is committed (ADR-0003).
+OPENAPI_SPEC_MODULE := github.com/openshift-hyperfleet/hyperfleet-desire-store-spec
+OPENAPI_SPEC_PATH := schemas/desire-store/openapi.yaml
+
 .PHONY: help
 help: ## Display this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
+##@ Code Generation
+
+.PHONY: generate
+generate: ## Generate OpenAPI types and client using oapi-codegen
+	$(GO) mod download
+	rm -rf pkg/api/openapi
+	mkdir -p pkg/api/openapi openapi
+	@rm -f openapi/openapi.yaml
+	@cp "$$($(GO) list -m -f '{{.Dir}}' $(OPENAPI_SPEC_MODULE))/$(OPENAPI_SPEC_PATH)" openapi/openapi.yaml
+	$(call gotool,oapi-codegen) --config openapi/oapi-codegen.yaml openapi/openapi.yaml
+	@printf 'package openapi\n\nimport _ "github.com/oapi-codegen/runtime"\n' > pkg/api/openapi/stub.go
+
 ##@ Development
 
 .PHONY: build
-build: ## Build the service binary into bin/
+build: generate ## Build the service binary into bin/
 	CGO_ENABLED=$(CGO_ENABLED) GOEXPERIMENT=$(GOEXPERIMENT) \
 		$(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BINARY_PATH) ./cmd/$(BINARY_NAME)
 
@@ -57,7 +76,7 @@ run: build ## Run the service locally
 	./$(BINARY_PATH) serve --log-format text
 
 .PHONY: test
-test: ## Run unit tests with the race detector
+test: generate ## Run unit tests with the race detector
 	$(GO) test -race -coverprofile=coverage.out ./...
 
 .PHONY: test-all
@@ -84,19 +103,19 @@ fmt-check: ## Fail if Go code is not formatted
 	fi
 
 .PHONY: vet
-vet: ## Run go vet
+vet: generate ## Run go vet
 	$(GO) vet ./...
 
 .PHONY: go-vet
 go-vet: vet ## Alias for vet (hyperfleet-go-vet hook)
 
 .PHONY: lint
-lint: ## Run golangci-lint
+lint: generate ## Run golangci-lint
 	$(GOLANGCI_LINT) run
 
 .PHONY: clean
-clean: ## Remove build artifacts
-	rm -rf bin/ coverage.out
+clean: ## Remove build artifacts and generated code
+	rm -rf bin/ coverage.out pkg/api/openapi/openapi.gen.go openapi/openapi.yaml
 
 .PHONY: install-hooks
 install-hooks: ## Install the pre-commit hooks

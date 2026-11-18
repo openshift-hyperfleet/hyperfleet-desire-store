@@ -1,0 +1,21 @@
+# OpenAPI Overlay applied by make generate before oapi-codegen runs. It
+# changes only the generated Go types, not the contract: kubeContent and status
+# stay raw JSON, so the service stores and returns the bytes it received
+# instead of re-encoding a decoded map.
+overlay: 1.0.0
+info:
+  title: Desire Store raw JSON members
+  version: 1.0.0
+actions:
+  - target: $.components.schemas.DesireWrite.properties.kubeContent
+    update:
+      x-go-type: json.RawMessage
+  - target: $.components.schemas.Desire.properties.kubeContent
+    update:
+      x-go-type: json.RawMessage
+  - target: $.components.schemas.Desire.properties.status
+    update:
+      x-go-type: json.RawMessage
+  - target: $.components.schemas.StatusWrite.properties.status
+    update:
+      x-go-type: json.RawMessage

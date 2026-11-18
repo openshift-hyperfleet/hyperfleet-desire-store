@@ -9,41 +9,60 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync/atomic"
 	"time"
-
-	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/config"
 )
 
-// Timeouts applied to both listeners.
+// Listener timeouts. The data-plane values match the HyperFleet API defaults.
 const (
 	readHeaderTimeout = 10 * time.Second
+	readTimeout       = 5 * time.Second
+	writeTimeout      = 30 * time.Second
+	idleTimeout       = 60 * time.Second
+
 	healthReadTimeout = 5 * time.Second
 )
 
+// Options are the listener settings.
+type Options struct {
+	// Addr is the listen address of the data plane.
+	Addr string
+	// HealthAddr is the listen address of the liveness and readiness
+	// endpoints.
+	HealthAddr string
+	// ShutdownTimeout bounds the whole graceful shutdown, drain included.
+	ShutdownTimeout time.Duration
+}
+
 // Server serves the Desire Store API data plane and its health endpoints.
 type Server struct {
-	cfg    config.Config
+	opts   Options
 	log    *slog.Logger
 	ready  atomic.Bool
 	api    *http.Server
 	health *http.Server
 }
 
-// New builds both listeners. Nothing is bound until Run is called.
-func New(cfg config.Config, log *slog.Logger) *Server {
-	server := &Server{cfg: cfg, log: log}
+// New builds both listeners; api is the data-plane handler. Nothing is bound
+// until Run is called.
+func New(api http.Handler, opts Options, log *slog.Logger) *Server {
+	server := &Server{opts: opts, log: log}
 	server.api = &http.Server{
-		Addr:              cfg.ServerAddr,
-		Handler:           server.apiHandler(),
+		Addr:              opts.Addr,
+		Handler:           api,
 		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 	server.health = &http.Server{
-		Addr:              cfg.HealthAddr,
+		Addr:              opts.HealthAddr,
 		Handler:           server.healthHandler(),
 		ReadHeaderTimeout: healthReadTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 	return server
 }
@@ -57,8 +76,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 	s.ready.Store(true)
 	s.log.InfoContext(ctx, "Desire Store API started",
-		"server_addr", s.cfg.ServerAddr,
-		"health_addr", s.cfg.HealthAddr,
+		"server_addr", s.opts.Addr,
+		"health_addr", s.opts.HealthAddr,
 	)
 
 	select {
@@ -81,19 +100,29 @@ func (s *Server) Run(ctx context.Context) error {
 // Shutdown implements the graceful shutdown sequence: mark not ready, drain
 // the data plane, then stop answering probes. Stopping the health listener
 // last keeps /readyz returning 503 while in-flight requests drain, which is
-// what tells Kubernetes to remove the pod from service endpoints.
+// what tells Kubernetes to remove the pod from service endpoints. Both
+// listeners stop even when the drain does not finish, and the error holds
+// the failure of each.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.ready.Store(false)
 	s.log.InfoContext(ctx, "draining in-flight requests")
 
-	if err := s.api.Shutdown(ctx); err != nil {
-		return err
+	apiErr := stop(ctx, "api", s.api)
+	return errors.Join(apiErr, stop(ctx, "health", s.health))
+}
+
+// stop shuts one listener down gracefully. When that does not finish before
+// ctx ends, it closes the connections that remain.
+func stop(ctx context.Context, name string, srv *http.Server) error {
+	err := srv.Shutdown(ctx)
+	if err == nil {
+		return nil
 	}
-	return s.health.Shutdown(ctx)
+	return fmt.Errorf("stopping the %s listener: %w", name, errors.Join(err, srv.Close()))
 }
 
 func (s *Server) shutdown() error {
-	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), s.opts.ShutdownTimeout)
 	defer cancel()
 
 	if err := s.Shutdown(ctx); err != nil {
@@ -111,14 +140,7 @@ func (s *Server) logShutdownError(ctx context.Context, message string, err error
 	if errors.Is(err, context.DeadlineExceeded) {
 		level = slog.LevelWarn
 	}
-	s.log.Log(ctx, level, message, "shutdown_timeout", s.cfg.ShutdownTimeout, "error", err)
-}
-
-// apiHandler builds the data-plane routes. The v1 Desire Store routes are
-// added by the service implementation; until then every path is a 404 and the
-// listener exists only so the deployment shape matches the design.
-func (s *Server) apiHandler() http.Handler {
-	return http.NewServeMux()
+	s.log.Log(ctx, level, message, "shutdown_timeout", s.opts.ShutdownTimeout, "error", err)
 }
 
 // healthHandler builds the probe routes. They only report process state, per

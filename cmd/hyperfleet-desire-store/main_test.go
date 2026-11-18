@@ -13,12 +13,17 @@ import (
 )
 
 func TestMainReportsStartupErrors(t *testing.T) {
+	const serveCommand, validTimeout = "serve", "20s"
+
 	t.Setenv("SHUTDOWN_TIMEOUT", "20s")
 	t.Setenv("HYPERFLEET_LOG_LEVEL", "info")
 	t.Setenv("HYPERFLEET_LOG_FORMAT", "json")
 	t.Setenv("HYPERFLEET_LOG_OUTPUT", "stdout")
 	t.Setenv("HYPERFLEET_SERVER_ADDR", ":8000")
 	t.Setenv("HYPERFLEET_HEALTH_ADDR", ":8080")
+	// An empty variable reads as unset, so a partition claim in the
+	// developer's shell cannot leak into the missing-claim case.
+	t.Setenv("HYPERFLEET_PARTITION_CLAIM", "")
 
 	binary := filepath.Join(t.TempDir(), "hyperfleet-desire-store")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -36,18 +41,24 @@ func TestMainReportsStartupErrors(t *testing.T) {
 		{
 			name:    "malformed environment duration",
 			timeout: "twenty",
-			args:    []string{"serve"},
+			args:    []string{serveCommand},
 			wantErr: "invalid SHUTDOWN_TIMEOUT",
 		},
 		{
 			name:    "invalid log level",
-			timeout: "20s",
-			args:    []string{"serve", "--log-level=verbose"},
+			timeout: validTimeout,
+			args:    []string{serveCommand, "--log-level=verbose"},
 			wantErr: "invalid log-level",
 		},
 		{
+			name:    "missing partition claim",
+			timeout: validTimeout,
+			args:    []string{serveCommand},
+			wantErr: "partition-claim is required",
+		},
+		{
 			name:    "successful version command",
-			timeout: "20s",
+			timeout: validTimeout,
 			args:    []string{"version"},
 		},
 	}
