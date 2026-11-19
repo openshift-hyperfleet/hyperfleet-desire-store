@@ -76,6 +76,25 @@ func TestEnvironmentParsesShutdownTimeout(t *testing.T) {
 	}
 }
 
+func TestMetricsAddrFromTheEnvironment(t *testing.T) {
+	cfg, err := load(t)
+	if err != nil {
+		t.Fatalf("load() error: %v", err)
+	}
+	if cfg.MetricsAddr != defaultMetricsAddr {
+		t.Fatalf("MetricsAddr = %q, want the default %q", cfg.MetricsAddr, defaultMetricsAddr)
+	}
+
+	t.Setenv(envMetricsAddr, ":9191")
+	cfg, err = load(t)
+	if err != nil {
+		t.Fatalf("load() error: %v", err)
+	}
+	if cfg.MetricsAddr != ":9191" {
+		t.Fatalf("MetricsAddr = %q, want the environment value", cfg.MetricsAddr)
+	}
+}
+
 func TestDefaultRejectsMalformedDuration(t *testing.T) {
 	t.Setenv(envShutdownTimeout, "twenty")
 
@@ -112,6 +131,7 @@ func TestValidateRejectsBadValues(t *testing.T) {
 	}{
 		"empty server address":  {func(c *Config) { c.ServerAddr = "" }, "server-addr"},
 		"empty health address":  {func(c *Config) { c.HealthAddr = "" }, "health-addr"},
+		"empty metrics address": {func(c *Config) { c.MetricsAddr = "" }, "metrics-addr"},
 		"zero shutdown timeout": {func(c *Config) { c.ShutdownTimeout = 0 }, "shutdown-timeout"},
 		"unknown log level":     {func(c *Config) { c.LogLevel = "verbose" }, "log-level"},
 		"unknown log format":    {func(c *Config) { c.LogFormat = "xml" }, "log-format"},
