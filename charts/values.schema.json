@@ -1,0 +1,160 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "replicaCount": { "type": "integer", "minimum": 0 },
+    "image": {
+      "type": "object",
+      "properties": {
+        "registry": { "type": "string" },
+        "repository": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "tag": { "type": "string" }
+      }
+    },
+    "imagePullSecrets": { "type": "array" },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "annotations": { "type": "object" },
+        "name": { "type": "string" }
+      }
+    },
+    "podAnnotations": { "type": "object" },
+    "podLabels": { "type": "object" },
+    "podSecurityContext": { "type": "object" },
+    "securityContext": { "type": "object" },
+    "resources": { "type": "object" },
+    "nodeSelector": { "type": "object" },
+    "tolerations": { "type": "array" },
+    "affinity": { "type": "object" },
+    "podDisruptionBudget": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "maxUnavailable": { "type": ["integer", "string"] }
+      }
+    },
+    "ports": {
+      "type": "object",
+      "properties": {
+        "api": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "properties": {
+        "healthPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "metricsPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "probes": {
+          "type": "object",
+          "properties": {
+            "liveness": { "$ref": "#/definitions/probe" },
+            "readiness": { "$ref": "#/definitions/probe" }
+          }
+        }
+      }
+    },
+    "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+    "lifecycle": { "type": "object" },
+    "config": {
+      "type": "object",
+      "properties": {
+        "partitionClaim": { "type": "string" },
+        "dbMaxConcurrency": { "type": ["integer", "string"] },
+        "sweeperIdentity": { "type": "string" },
+        "wristband": {
+          "type": "object",
+          "properties": {
+            "issuer": { "type": "string" },
+            "audience": { "type": "string" },
+            "jwksUrl": { "type": "string" },
+            "jwksCaFile": { "type": "string" },
+            "algorithms": { "type": "string" }
+          }
+        },
+        "shutdownTimeout": { "type": "string" },
+        "log": {
+          "type": "object",
+          "properties": {
+            "level": { "type": "string", "enum": ["", "debug", "info", "warn", "error"] },
+            "format": { "type": "string", "enum": ["", "json", "text"] },
+            "output": { "type": "string", "enum": ["", "stdout", "stderr"] }
+          }
+        }
+      }
+    },
+    "extraEnv": { "type": "array" },
+    "extraEnvFrom": { "type": "array" },
+    "monitoring": {
+      "type": "object",
+      "properties": {
+        "serviceMonitor": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "namespace": { "type": "string" },
+            "labels": { "type": "object" },
+            "interval": { "type": "string" },
+            "scrapeTimeout": { "type": "string" },
+            "honorLabels": { "type": "boolean" },
+            "namespaceSelector": { "type": "object" },
+            "metricRelabeling": { "type": "array" }
+          }
+        },
+        "prometheusRule": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "namespace": { "type": "string" },
+            "additionalLabels": { "type": "object" },
+            "alerts": {
+              "type": "object",
+              "properties": {
+                "down": {
+                  "type": "object",
+                  "properties": { "for": { "type": "string" } }
+                },
+                "highErrorRatio": {
+                  "type": "object",
+                  "properties": {
+                    "threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "minRequestRate": { "type": "number", "minimum": 0 },
+                    "for": { "type": "string" }
+                  }
+                },
+                "highLatency": {
+                  "type": "object",
+                  "properties": {
+                    "thresholdSeconds": { "type": "number", "exclusiveMinimum": 0 },
+                    "minRequestRate": { "type": "number", "minimum": 0 },
+                    "for": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "dashboard": {
+          "type": "object",
+          "properties": { "enabled": { "type": "boolean" } }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "probe": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "initialDelaySeconds": { "type": "integer", "minimum": 0 },
+        "periodSeconds": { "type": "integer", "minimum": 1 },
+        "timeoutSeconds": { "type": "integer", "minimum": 1 },
+        "failureThreshold": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

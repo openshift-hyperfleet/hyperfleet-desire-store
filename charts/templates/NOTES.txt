@@ -1,0 +1,7 @@
+HyperFleet Desire Store API has been deployed.
+
+Check deployment status:
+  kubectl get pods --namespace {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Database credentials are not part of this chart yet. Pass them with
+extraEnv or extraEnvFrom.

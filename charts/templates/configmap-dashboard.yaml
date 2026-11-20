@@ -1,0 +1,12 @@
+{{- if .Values.monitoring.dashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hyperfleet-desire-store.fullname" . }}-grafana-dashboard
+  labels:
+    {{- include "hyperfleet-desire-store.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  hyperfleet-desire-store.json: |-
+    {{- .Files.Get "dashboards/hyperfleet-desire-store.json" | nindent 4 }}
+{{- end }}
