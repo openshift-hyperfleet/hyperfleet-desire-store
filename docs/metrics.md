@@ -61,6 +61,41 @@ histogram_quantile(0.99,
   sum by (path, le) (rate(hyperfleet_desire_store_request_duration_seconds_bucket[5m])))
 ```
 
+## Scraping
+
+The Helm chart in `charts/` exposes the metrics listener as the Service port
+`metrics` (`observability.metricsPort`, default `9090`). Three toggles under
+`monitoring` turn on the monitoring resources. All three default to `false`.
+
+| Value | Resource | Needs |
+| --- | --- | --- |
+| `monitoring.serviceMonitor.enabled` | `ServiceMonitor` that scrapes `/metrics` of the `metrics` port | Prometheus Operator CRDs |
+| `monitoring.prometheusRule.enabled` | `PrometheusRule` with the alerts in [alerts.md](alerts.md) | Prometheus Operator CRDs |
+| `monitoring.dashboard.enabled` | `ConfigMap` with the Grafana dashboard, label `grafana_dashboard: "1"` | A Grafana dashboard sidecar that reads that label |
+
+The Prometheus Operator and the Grafana sidecar belong to the monitoring stack,
+not to this chart. The `kube-prometheus-stack` values in `hyperfleet-infra`
+(`helmfile/values/base-kube-prometheus-stack.yaml.gotmpl`) set
+`serviceMonitorSelectorNilUsesHelmValues` and `ruleSelectorNilUsesHelmValues`
+to `false`, so that stack selects the resources without a release label. For
+any other stack, check its selectors `[unverified]`.
+
+The `PrometheusRule` queries are scoped to the release's namespace and Service
+through the labels the ServiceMonitor adds to each target; see
+[alerts.md](alerts.md).
+
+The metrics listener has no authentication, so keep the Service inside the
+cluster.
+
+## Dashboard
+
+`charts/dashboards/hyperfleet-desire-store.json` has the template variables
+`datasource`, `namespace` and `service`. Every panel filters on `namespace` and
+`service`.
+
+No panel uses a `partition` label (see [Per-partition data](#per-partition-data)).
+The request panels stay empty until `serve` mounts the router.
+
 ## Per-partition data
 
 **Decision:** no metric carries a `partition` label. Per-partition questions

@@ -12,7 +12,8 @@ The service is part of the Desire Store design:
 ## Status
 
 The process starts, serves the standard health and metrics endpoints, shuts down
-gracefully, and builds a FIPS-compliant image.
+gracefully, builds a FIPS-compliant image, and ships a Helm chart with
+monitoring resources (see [Helm chart](#helm-chart)).
 
 The REST v1 service is implemented in the same layers as hyperfleet-api:
 `internal/handlers` decodes requests and writes responses, `internal/services`
@@ -126,8 +127,10 @@ pkg/api/openapi/              # generated REST v1 types and client (not committe
 internal/errors/              # ServiceError and its RFC 9457 problem form
 internal/metrics/             # Prometheus registry and request metrics, see docs/metrics.md
 internal/server/              # data plane, health and metrics listeners, shutdown
-tools/                        # pinned Go tools (golangci-lint, yq, oapi-codegen)
-.tekton/                      # Konflux PipelineRuns for the image build
+charts/                       # Helm chart, Grafana dashboard and chart README
+scripts/                      # test-helm.sh: chart render tests
+tools/                        # pinned Go tools (golangci-lint, yq, oapi-codegen, helm-docs, kubeconform)
+.tekton/                      # Konflux PipelineRuns for the image and chart builds
 .hyperfleet.yaml              # repository type, read by HyperFleet tooling
 ```
 
@@ -142,6 +145,7 @@ Every change is expected to pass:
 | Formatting | `make fmt-check` |
 | Vet | `make vet` |
 | Konflux PipelineRuns parse | `make validate-tekton` |
+| Helm chart lint, render and assertions | `make test-helm` |
 | Commit message convention | `pre-commit install`, then the `commit-msg` hook |
 
 Prow setup is pending in [HYPERFLEET-1918](https://redhat.atlassian.net/browse/HYPERFLEET-1918).
@@ -185,7 +189,34 @@ the `hyperfleet-tenant` namespace and requires:
 4. The Slack webhook Secret the `finally` task reads — the same `hyperfleet-slack-webhook-notification-secret` used by the other components, so it may already exist.
 5. A first green build on `main`, then a `vX.Y.Z` tag that produces a released image through the release pipeline.
 
-Chart pipelines (`.tekton/*-chart-*.yaml`) are added with the Helm chart.
+The chart PipelineRuns (`.tekton/hyperfleet-desire-store-chart-push.yaml` and
+`-chart-tag.yaml`) build the chart from `charts/` into an OCI artifact. They
+are written against these coordinates:
+
+| Item | Value |
+| --- | --- |
+| Konflux Application | `hyperfleet-charts` |
+| Konflux Component | `hyperfleet-desire-store-chart` |
+| Build artifact | `quay.io/redhat-user-workloads/hyperfleet-tenant/hyperfleet/hyperfleet-desire-store-chart` |
+| Service account | `build-pipeline-hyperfleet-desire-store-chart` |
+
+They use the same push and tag triggers as the image PipelineRuns. Register
+the `hyperfleet-desire-store-chart` Component and create its service account
+together with the image Component, before enabling repository events.
+What Pipelines as Code does with a PipelineRun whose Component is missing is
+`[unverified]`.
+
+## Helm chart
+
+`charts/` holds the Helm chart. [charts/README.md](charts/README.md) has the
+install command and the values. The image registry, repository and tag, and six
+service settings (see [docs/config.md](docs/config.md)), have no default; the
+render fails while one is empty.
+
+The chart does not wire database credentials yet; pass them with `extraEnv` or
+`extraEnvFrom`. The ServiceMonitor, PrometheusRule and Grafana dashboard are
+off by default. See [docs/metrics.md](docs/metrics.md#scraping) and
+[docs/alerts.md](docs/alerts.md).
 
 ## License
 

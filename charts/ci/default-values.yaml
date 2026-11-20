@@ -1,0 +1,14 @@
+# Test values that make the chart render; the chart has no defaults for these.
+# Used by make helm-lint, helm-template and test-helm.
+image:
+  registry: quay.io
+  repository: openshift-hyperfleet/hyperfleet-desire-store
+  tag: test
+config:
+  partitionClaim: partition
+  dbMaxConcurrency: 10
+  sweeperIdentity: system:serviceaccount:hyperfleet:sweeper
+  wristband:
+    issuer: https://issuer.example
+    audience: desire-store
+    jwksUrl: https://issuer.example/jwks
