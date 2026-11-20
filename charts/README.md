@@ -79,7 +79,7 @@ helm install hyperfleet-desire-store ./charts \
 | observability.probes.readiness.timeoutSeconds | int | `3` | Readiness probe timeout in seconds |
 | observability.probes.readiness.failureThreshold | int | `3` | Failed readiness probes before the pod leaves the Service |
 | terminationGracePeriodSeconds | int | `45` | Seconds Kubernetes waits for the pod to stop. Must exceed the `preStop` sleep plus `config.shutdownTimeout` with a margin. The render fails when it does not. |
-| lifecycle | object | `{"preStop":{"exec":{"command":["sleep","5"]}}}` | Container lifecycle hooks. The `preStop` sleep lets endpoint removal propagate before the service starts to shut down. |
+| lifecycle | object | `{"preStop":{"exec":{"command":["sleep","5"]}}}` | Container lifecycle hooks. The `preStop` sleep lets endpoint removal propagate before the service starts to shut down. The render reads the sleep from `preStop.sleep.seconds`, `exec` `["sleep", "N"]` or `exec` `["/bin/sh", "-c", "sleep N"]`, and fails on any other `preStop` hook. |
 | config | object | See values.yaml | Service settings, rendered to a ConfigMap of `HYPERFLEET_*` environment variables (see docs/config.md). The listen addresses are not settings here: they come from `ports.api`, `observability.healthPort` and `observability.metricsPort`. Settings marked "required" have no default and the render fails while they are empty. |
 | config.partitionClaim | string | `""` | Wristband claim that carries the caller's partition (required) |
 | config.dbMaxConcurrency | string | `""` | Connection pool size of the Postgres store, at least 1 (required) |

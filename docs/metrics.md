@@ -50,7 +50,10 @@ response, which has no Error Model problem, so it has no `errors_total` sample.
 Error ratio by route:
 
 ```promql
-sum by (path) (rate(hyperfleet_desire_store_requests_total{status_code=~"5.."}[5m]))
+(
+  sum by (path) (rate(hyperfleet_desire_store_requests_total{status_code=~"5.."}[5m]))
+    or 0 * sum by (path) (rate(hyperfleet_desire_store_requests_total[5m]))
+)
   / sum by (path) (rate(hyperfleet_desire_store_requests_total[5m]))
 ```
 

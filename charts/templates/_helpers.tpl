@@ -82,30 +82,53 @@ Fail the render when the image or a required service setting is unset.
 
 {{/*
 Fail the render when the termination grace period cannot cover the preStop
-sleep plus the shutdown timeout. Values the template cannot parse are
-skipped; the service rejects them at startup anyway.
+sleep plus the shutdown timeout. The preStop hook must be absent or a single
+sleep in one of the shapes read below; any other hook fails the render. A
+timeout the template cannot read as a non-negative Go duration also fails it.
 */}}
 {{- define "hyperfleet-desire-store.validateShutdownBudget" -}}
 {{- $timeout := trim (toString .Values.config.shutdownTimeout) -}}
 {{- if not $timeout -}}{{- $timeout = "20s" -}}{{- end -}}
 {{- $grace := .Values.terminationGracePeriodSeconds | int -}}
-{{- $sleep := 5 -}}
-{{- $command := dig "preStop" "exec" "command" (list) (.Values.lifecycle | default dict) -}}
-{{- if and (eq (len $command) 2) (eq (index $command 0) "sleep") (regexMatch "^[0-9]+$" (index $command 1)) -}}
-{{- $sleep = index $command 1 | int -}}
+{{- $sleep := 0 -}}
+{{- $preStop := dig "preStop" dict (.Values.lifecycle | default dict) -}}
+{{- if $preStop -}}
+{{- $sleep = -1 -}}
+{{- $command := list -}}
+{{- range (dig "exec" "command" (list) $preStop) -}}
+{{- $command = append $command (toString .) -}}
 {{- end -}}
+{{- $native := toString (dig "sleep" "seconds" "" $preStop) -}}
+{{- if ne (len (keys $preStop)) 1 -}}
+{{- else if regexMatch "^[0-9]+$" $native -}}
+{{- $sleep = $native | int -}}
+{{- else if and (eq (len $command) 2) (eq (index $command 0) "sleep") (regexMatch "^[0-9]+$" (index $command 1)) -}}
+{{- $sleep = index $command 1 | int -}}
+{{- else if and (eq (len $command) 3) (regexMatch "^(/usr)?(/bin/)?(ba)?sh$" (index $command 0)) (eq (index $command 1) "-c") (regexMatch "^\\s*sleep\\s+[0-9]+\\s*$" (index $command 2)) -}}
+{{- $sleep = regexFind "[0-9]+" (index $command 2) | int -}}
+{{- end -}}
+{{- if lt $sleep 0 -}}
+{{- fail "lifecycle.preStop must be sleep.seconds, exec [\"sleep\", \"N\"] or exec [\"/bin/sh\", \"-c\", \"sleep N\"], so the render can check terminationGracePeriodSeconds against it" -}}
+{{- end -}}
+{{- end -}}
+{{- $unit := "([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h)" -}}
+{{- $duration := trimPrefix "+" $timeout -}}
 {{- $seconds := -1.0 -}}
-{{- if regexMatch "^[0-9]+(\\.[0-9]+)?$" $timeout -}}
-{{- $seconds = $timeout | float64 -}}
-{{- else if eq (trim (regexReplaceAll "[0-9]+(\\.[0-9]+)?(ms|s|m|h)" $timeout "")) "" -}}
+{{- if regexMatch "^[0-9]+(\\.[0-9]+)?$" $duration -}}
+{{- $seconds = $duration | float64 -}}
+{{- else if regexMatch (printf "^(%s)+$" $unit) $duration -}}
 {{- $seconds = 0.0 -}}
-{{- range regexFindAll "[0-9]+(\\.[0-9]+)?(ms|s|m|h)" $timeout -1 -}}
+{{- range regexFindAll $unit $duration -1 -}}
 {{- $part := . -}}
 {{- $mult := 1.0 -}}
-{{- if hasSuffix "ms" $part -}}
-{{- $mult = 0.001 -}}
-{{- $part = trimSuffix "ms" $part -}}
-{{- else if hasSuffix "h" $part -}}
+{{- range $suffix, $m := dict "ns" 0.000000001 "us" 0.000001 "µs" 0.000001 "μs" 0.000001 "ms" 0.001 -}}
+{{- if hasSuffix $suffix $part -}}
+{{- $mult = $m -}}
+{{- $part = trimSuffix $suffix $part -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $mult 1.0 -}}
+{{- if hasSuffix "h" $part -}}
 {{- $mult = 3600.0 -}}
 {{- $part = trimSuffix "h" $part -}}
 {{- else if hasSuffix "m" $part -}}
@@ -114,12 +137,14 @@ skipped; the service rejects them at startup anyway.
 {{- else -}}
 {{- $part = trimSuffix "s" $part -}}
 {{- end -}}
-{{- $seconds = addf $seconds (mulf ($part | float64) $mult) -}}
+{{- end -}}
+{{- $seconds = addf $seconds (mulf (printf "0%s" $part | float64) $mult) -}}
 {{- end -}}
 {{- end -}}
-{{- if ge $seconds 0.0 -}}
+{{- if lt $seconds 0.0 -}}
+{{- fail (printf "config.shutdownTimeout (%s) must be a non-negative Go duration such as 20s or 1m30s" $timeout) -}}
+{{- end -}}
 {{- if le ($grace | float64) (addf $seconds ($sleep | float64)) -}}
 {{- fail (printf "terminationGracePeriodSeconds (%d) must exceed the preStop sleep (%d) plus config.shutdownTimeout (%s)" $grace $sleep $timeout) -}}
-{{- end -}}
 {{- end -}}
 {{- end }}

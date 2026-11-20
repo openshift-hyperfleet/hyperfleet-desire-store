@@ -31,9 +31,10 @@ must never be committed or printed in logs.
 
 ## Before these run
 
-The PipelineRuns are inert until both Components (`hyperfleet-desire-store` and
-`hyperfleet-desire-store-chart`) are registered in Konflux and both service
-accounts exist. See
+Register both Components (`hyperfleet-desire-store` and
+`hyperfleet-desire-store-chart`) and create both service accounts together,
+before enabling repository events. What Pipelines as Code does with a
+PipelineRun whose Component is missing is unverified. See
 the Konflux section of the [README](../README.md) for the registration steps:
 the Components, the Pipelines as Code repository, the
 `build-pipeline-hyperfleet-desire-store` and

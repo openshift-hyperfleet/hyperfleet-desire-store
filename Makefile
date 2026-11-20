@@ -159,7 +159,9 @@ helm-docs: ## Generate the chart README from values.yaml comments
 verify-helm-docs: ## Fail if the chart README is out of date
 	@tmp=$$(mktemp -d) && \
 	cp -R charts $$tmp/ && \
+	rm -f $$tmp/charts/README.md && \
 	$(call gotool,helm-docs) --chart-search-root=$$tmp/charts --sort-values-order=file > /dev/null && \
+	{ test -s $$tmp/charts/README.md || { echo "ERROR: helm-docs did not generate charts/README.md."; rm -rf $$tmp; exit 1; }; } && \
 	{ diff -u charts/README.md $$tmp/charts/README.md || { echo "ERROR: charts/README.md is out of date. Run 'make helm-docs' and commit the result."; rm -rf $$tmp; exit 1; }; } && \
 	rm -rf $$tmp
 

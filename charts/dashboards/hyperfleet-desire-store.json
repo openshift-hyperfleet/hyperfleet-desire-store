@@ -107,7 +107,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (path) (rate(hyperfleet_desire_store_requests_total{namespace=~\"$namespace\", service=~\"$service\", status_code=~\"5..\"}[5m])) / sum by (path) (rate(hyperfleet_desire_store_requests_total{namespace=~\"$namespace\", service=~\"$service\"}[5m]))",
+          "expr": "(sum by (path) (rate(hyperfleet_desire_store_requests_total{namespace=~\"$namespace\", service=~\"$service\", status_code=~\"5..\"}[5m])) or 0 * sum by (path) (rate(hyperfleet_desire_store_requests_total{namespace=~\"$namespace\", service=~\"$service\"}[5m]))) / sum by (path) (rate(hyperfleet_desire_store_requests_total{namespace=~\"$namespace\", service=~\"$service\"}[5m]))",
           "legendFormat": "{{path}}"
         }
       ]
