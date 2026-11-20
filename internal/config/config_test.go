@@ -76,7 +76,19 @@ func TestEnvironmentParsesShutdownTimeout(t *testing.T) {
 	}
 }
 
+// setMinimalTestEnv pins every environment variable the configuration reads to
+// empty, which ApplyEnv reads as unset, so a variable exported in the
+// developer's shell cannot leak into a test. A setting added to flagEnv is
+// covered without further test changes.
+func setMinimalTestEnv(t *testing.T) {
+	t.Helper()
+	for _, env := range flagEnv {
+		t.Setenv(env, "")
+	}
+}
+
 func TestMetricsAddrFromTheEnvironment(t *testing.T) {
+	setMinimalTestEnv(t)
 	cfg, err := load(t)
 	if err != nil {
 		t.Fatalf("load() error: %v", err)
@@ -223,6 +235,7 @@ func TestValidateAcceptsCompleteConfiguration(t *testing.T) {
 }
 
 func TestDefaultReadsAccessSettings(t *testing.T) {
+	setMinimalTestEnv(t)
 	t.Setenv(envPartitionClaim, "hf_partition")
 	t.Setenv(envWristbandIssuer, "https://issuer.example")
 	t.Setenv(envWristbandAudience, "desire-store-api")
