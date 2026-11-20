@@ -11,8 +11,9 @@ The service is part of the Desire Store design:
 
 ## Status
 
-The process starts, serves the standard health endpoints, shuts down
-gracefully, and builds a FIPS-compliant image.
+The process starts, serves the standard health and metrics endpoints, shuts down
+gracefully, builds a FIPS-compliant image, and ships a Helm chart with
+monitoring resources (see [Helm chart](#helm-chart)).
 
 The REST v1 service is implemented in the same layers as hyperfleet-api:
 `internal/handlers` decodes requests and writes responses, `internal/services`
@@ -38,7 +39,7 @@ it.
 ```bash
 make generate   # OpenAPI types and client into pkg/api/openapi; build, test, vet, and lint run it
 make build      # bin/hyperfleet-desire-store
-make run        # serve with text logs on :8000 and :8080; set the required settings first
+make run        # serve with text logs on :8000, :8080 and :9090; set the required settings first
 make test       # unit tests with the race detector
 make lint       # golangci-lint, pinned in tools/go.mod
 make ci-validate  # everything CI runs, except the image build
@@ -52,9 +53,11 @@ make ci-validate  # everything CI runs, except the image build
 | --- | --- | --- |
 | `8080` | `/healthz` | Liveness. Reports process state only, never a dependency. |
 | `8080` | `/readyz` | Readiness. `503` during startup and across the shutdown drain. |
+| `9090` | `/metrics` | Prometheus metrics. See [docs/metrics.md](docs/metrics.md). |
 | `8000` | `/api/hyperfleet/desire-store/v1/...` | Desire Store REST v1 data plane, not mounted yet (see [Status](#status)). |
 
-Both follow the [health endpoints standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/health-endpoints.md).
+The probes follow the [health endpoints standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/health-endpoints.md).
+`/metrics` follows the [metrics standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/metrics.md).
 
 ### Configuration
 
@@ -65,6 +68,7 @@ defaults. A malformed value fails startup instead of being ignored.
 | --- | --- | --- |
 | `--server-addr` | `HYPERFLEET_SERVER_ADDR` | `:8000` |
 | `--health-addr` | `HYPERFLEET_HEALTH_ADDR` | `:8080` |
+| `--metrics-addr` | `HYPERFLEET_METRICS_ADDR` | `:9090` |
 | `--shutdown-timeout` | `SHUTDOWN_TIMEOUT` | `20s` |
 | `--log-level`, `-l` | `HYPERFLEET_LOG_LEVEL` | `info` |
 | `--log-format`, `-f` | `HYPERFLEET_LOG_FORMAT` | `json` |
@@ -96,11 +100,11 @@ Settings and naming follow the [configuration standard](https://github.com/opens
 and the [logging specification](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/logging-specification.md).
 
 On `SIGTERM` or `SIGINT` the service marks itself not ready, drains in-flight
-requests, and stops the health listener last, per the
+requests, stops the metrics listener, and stops the health listener last, per the
 [graceful shutdown standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/graceful-shutdown.md).
 The data-plane listener closes when the drain starts. A response whose headers
 are written during the drain carries `Connection: close`. When the drain does not finish within
-`SHUTDOWN_TIMEOUT`, the service closes the remaining connections on both
+`SHUTDOWN_TIMEOUT`, the service closes the remaining connections on all
 listeners and exits with an error.
 
 Kubernetes removes a terminating pod from Service endpoints asynchronously, so
@@ -121,9 +125,12 @@ internal/presenters/          # stored desires to REST v1 wire shapes, list curs
 openapi/                      # oapi-codegen config and overlay; make generate copies the contract here
 pkg/api/openapi/              # generated REST v1 types and client (not committed)
 internal/errors/              # ServiceError and its RFC 9457 problem form
-internal/server/              # data plane and health listeners, shutdown
-tools/                        # pinned Go tools (golangci-lint, yq, oapi-codegen)
-.tekton/                      # Konflux PipelineRuns for the image build
+internal/metrics/             # Prometheus registry and request metrics, see docs/metrics.md
+internal/server/              # data plane, health and metrics listeners, shutdown
+charts/                       # Helm chart, Grafana dashboard and chart README
+scripts/                      # test-helm.sh: chart render tests
+tools/                        # pinned Go tools (golangci-lint, yq, oapi-codegen, helm-docs, kubeconform)
+.tekton/                      # Konflux PipelineRuns for the image and chart builds
 .hyperfleet.yaml              # repository type, read by HyperFleet tooling
 ```
 
@@ -138,6 +145,7 @@ Every change is expected to pass:
 | Formatting | `make fmt-check` |
 | Vet | `make vet` |
 | Konflux PipelineRuns parse | `make validate-tekton` |
+| Helm chart lint, render and assertions | `make test-helm` |
 | Commit message convention | `pre-commit install`, then the `commit-msg` hook |
 
 Prow setup is pending in [HYPERFLEET-1918](https://redhat.atlassian.net/browse/HYPERFLEET-1918).
@@ -181,7 +189,34 @@ the `hyperfleet-tenant` namespace and requires:
 4. The Slack webhook Secret the `finally` task reads — the same `hyperfleet-slack-webhook-notification-secret` used by the other components, so it may already exist.
 5. A first green build on `main`, then a `vX.Y.Z` tag that produces a released image through the release pipeline.
 
-Chart pipelines (`.tekton/*-chart-*.yaml`) are added with the Helm chart.
+The chart PipelineRuns (`.tekton/hyperfleet-desire-store-chart-push.yaml` and
+`-chart-tag.yaml`) build the chart from `charts/` into an OCI artifact. They
+are written against these coordinates:
+
+| Item | Value |
+| --- | --- |
+| Konflux Application | `hyperfleet-charts` |
+| Konflux Component | `hyperfleet-desire-store-chart` |
+| Build artifact | `quay.io/redhat-user-workloads/hyperfleet-tenant/hyperfleet/hyperfleet-desire-store-chart` |
+| Service account | `build-pipeline-hyperfleet-desire-store-chart` |
+
+They use the same push and tag triggers as the image PipelineRuns. Register
+the `hyperfleet-desire-store-chart` Component and create its service account
+together with the image Component, before enabling repository events.
+What Pipelines as Code does with a PipelineRun whose Component is missing is
+`[unverified]`.
+
+## Helm chart
+
+`charts/` holds the Helm chart. [charts/README.md](charts/README.md) has the
+install command and the values. The image registry, repository and tag, and six
+service settings (see [docs/config.md](docs/config.md)), have no default; the
+render fails while one is empty.
+
+The chart does not wire database credentials yet; pass them with `extraEnv` or
+`extraEnvFrom`. The ServiceMonitor, PrometheusRule and Grafana dashboard are
+off by default. See [docs/metrics.md](docs/metrics.md#scraping) and
+[docs/alerts.md](docs/alerts.md).
 
 ## License
 

@@ -21,6 +21,7 @@ func TestMainReportsStartupErrors(t *testing.T) {
 	t.Setenv("HYPERFLEET_LOG_OUTPUT", "stdout")
 	t.Setenv("HYPERFLEET_SERVER_ADDR", ":8000")
 	t.Setenv("HYPERFLEET_HEALTH_ADDR", ":8080")
+	t.Setenv("HYPERFLEET_METRICS_ADDR", ":9090")
 	// An empty variable reads as unset, so a partition claim in the
 	// developer's shell cannot leak into the missing-claim case.
 	t.Setenv("HYPERFLEET_PARTITION_CLAIM", "")

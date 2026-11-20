@@ -15,13 +15,23 @@ import (
 	"time"
 )
 
-const testAddr = "127.0.0.1:0"
+const (
+	testAddr    = "127.0.0.1:0"
+	metricsBody = "metrics-body"
+)
+
+var metricsHandler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	if _, err := io.WriteString(w, metricsBody); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+})
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	return New(http.NewServeMux(), Options{
+	return New(http.NewServeMux(), metricsHandler, Options{
 		Addr:            testAddr,
 		HealthAddr:      testAddr,
+		MetricsAddr:     testAddr,
 		ShutdownTimeout: 5 * time.Second,
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
@@ -114,11 +124,11 @@ func TestRunReturnsAfterContextCancellation(t *testing.T) {
 	}
 }
 
-// TestReadinessIsUnavailableDuringTheDrain runs both listeners, holds one
+// TestReadinessIsUnavailableDuringTheDrain runs all three listeners, holds one
 // data-plane request open, and cancels Run. /readyz must answer 503 while the
 // request drains, and the request must still complete.
 func TestReadinessIsUnavailableDuringTheDrain(t *testing.T) {
-	apiAddr, healthAddr := freeAddr(t), freeAddr(t)
+	apiAddr, healthAddr, metricsAddr := freeAddr(t), freeAddr(t), freeAddr(t)
 	entered, released := make(chan struct{}), make(chan struct{})
 	release := sync.OnceFunc(func() { close(released) })
 	t.Cleanup(release)
@@ -129,7 +139,8 @@ func TestReadinessIsUnavailableDuringTheDrain(t *testing.T) {
 		<-released
 		w.WriteHeader(http.StatusNoContent)
 	})
-	server := New(mux, Options{Addr: apiAddr, HealthAddr: healthAddr, ShutdownTimeout: 10 * time.Second},
+	server := New(mux, metricsHandler,
+		Options{Addr: apiAddr, HealthAddr: healthAddr, MetricsAddr: metricsAddr, ShutdownTimeout: 10 * time.Second},
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	// /readyz turns 503 before the API drain starts, so the test waits for the
 	// drain itself before it lets the slow request finish.
@@ -154,6 +165,7 @@ func TestReadinessIsUnavailableDuringTheDrain(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the slow request did not reach the handler within 5s")
 	}
+	waitForStatus(t, "http://"+metricsAddr+"/metrics", http.StatusOK)
 	cancel()
 
 	waitForStatus(t, readyz, http.StatusServiceUnavailable)
@@ -161,6 +173,9 @@ func TestReadinessIsUnavailableDuringTheDrain(t *testing.T) {
 	case <-draining:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the API listener did not start draining within 5s")
+	}
+	if code := statusOf(t.Context(), "http://"+metricsAddr+"/metrics"); code != http.StatusOK {
+		t.Fatalf("/metrics status during the drain = %d, want %d", code, http.StatusOK)
 	}
 	release()
 	response := <-inflight
@@ -230,12 +245,12 @@ func waitForStatus(t *testing.T, url string, want int) {
 	}
 }
 
-// TestShutdownTimeoutStopsBothListeners holds a data-plane request and an
+// TestShutdownTimeoutStopsAllListeners holds a data-plane request and an
 // unfinished health request open past the shutdown timeout. Run must still
-// stop both listeners and close both connections, and its error must report
-// the failure of each listener.
-func TestShutdownTimeoutStopsBothListeners(t *testing.T) {
-	apiAddr, healthAddr := freeAddr(t), freeAddr(t)
+// stop all three listeners and close both held connections. Its error must
+// report the failure of the api and health listeners, which hold a connection.
+func TestShutdownTimeoutStopsAllListeners(t *testing.T) {
+	apiAddr, healthAddr, metricsAddr := freeAddr(t), freeAddr(t), freeAddr(t)
 	entered, release := make(chan struct{}), make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	mux := http.NewServeMux()
@@ -244,7 +259,8 @@ func TestShutdownTimeoutStopsBothListeners(t *testing.T) {
 		<-release
 		w.WriteHeader(http.StatusNoContent)
 	})
-	server := New(mux, Options{Addr: apiAddr, HealthAddr: healthAddr, ShutdownTimeout: 200 * time.Millisecond},
+	server := New(mux, metricsHandler,
+		Options{Addr: apiAddr, HealthAddr: healthAddr, MetricsAddr: metricsAddr, ShutdownTimeout: 200 * time.Millisecond},
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -295,7 +311,7 @@ func TestShutdownTimeoutStopsBothListeners(t *testing.T) {
 	if _, err := probe.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
 		t.Fatalf("reading the unfinished health request = %v, want its connection closed", err)
 	}
-	for _, addr := range []string{apiAddr, healthAddr} {
+	for _, addr := range []string{apiAddr, healthAddr, metricsAddr} {
 		if conn, err := net.DialTimeout("tcp", addr, time.Second); err == nil {
 			_ = conn.Close()
 			t.Fatalf("%s still accepts connections after Run returned", addr)
@@ -307,9 +323,10 @@ func TestRunFailsWhenTheHealthAddressIsInUse(t *testing.T) {
 	occupied := httptest.NewServer(http.NotFoundHandler())
 	t.Cleanup(occupied.Close)
 
-	server := New(http.NewServeMux(), Options{
+	server := New(http.NewServeMux(), metricsHandler, Options{
 		Addr:            testAddr,
 		HealthAddr:      occupied.Listener.Addr().String(),
+		MetricsAddr:     testAddr,
 		ShutdownTimeout: 5 * time.Second,
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
@@ -318,5 +335,68 @@ func TestRunFailsWhenTheHealthAddressIsInUse(t *testing.T) {
 
 	if err := server.Run(ctx); err == nil {
 		t.Fatal("Run must fail when a listener cannot bind")
+	}
+}
+
+func TestRunServesMetrics(t *testing.T) {
+	apiAddr, healthAddr, metricsAddr := freeAddr(t), freeAddr(t), freeAddr(t)
+	server := New(http.NewServeMux(), metricsHandler,
+		Options{Addr: apiAddr, HealthAddr: healthAddr, MetricsAddr: metricsAddr, ShutdownTimeout: 5 * time.Second},
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- server.Run(ctx) }()
+	url := "http://" + metricsAddr + "/metrics"
+	waitForStatus(t, url, http.StatusOK)
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("building the request: %v", err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("scraping /metrics: %v", err)
+	}
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("closing the response body: %v", closeErr)
+		}
+	}()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("reading /metrics: %v", err)
+	}
+	if string(body) != metricsBody {
+		t.Fatalf("/metrics body = %q, want %q", body, metricsBody)
+	}
+	if code := statusOf(ctx, "http://"+metricsAddr+"/other"); code != http.StatusNotFound {
+		t.Fatalf("/other status = %d, want %d", code, http.StatusNotFound)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned %v, want nil", err)
+	}
+}
+
+func TestRunFailsWhenTheMetricsAddressIsInUse(t *testing.T) {
+	occupied := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(occupied.Close)
+
+	server := New(http.NewServeMux(), metricsHandler, Options{
+		Addr:            testAddr,
+		HealthAddr:      testAddr,
+		MetricsAddr:     occupied.Listener.Addr().String(),
+		ShutdownTimeout: 5 * time.Second,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := server.Run(ctx)
+	if err == nil || !strings.Contains(err.Error(), "metrics listener") {
+		t.Fatalf("Run returned %v, want a metrics listener failure", err)
 	}
 }

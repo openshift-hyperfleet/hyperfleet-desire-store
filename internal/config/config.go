@@ -31,6 +31,7 @@ import (
 const (
 	envServerAddr      = "HYPERFLEET_SERVER_ADDR"
 	envHealthAddr      = "HYPERFLEET_HEALTH_ADDR"
+	envMetricsAddr     = "HYPERFLEET_METRICS_ADDR"
 	envShutdownTimeout = "SHUTDOWN_TIMEOUT"
 	envLogLevel        = "HYPERFLEET_LOG_LEVEL"  //nolint:gosec // not a credential
 	envLogFormat       = "HYPERFLEET_LOG_FORMAT" //nolint:gosec // not a credential
@@ -50,6 +51,7 @@ const (
 const (
 	defaultServerAddr      = ":8000"
 	defaultHealthAddr      = ":8080"
+	defaultMetricsAddr     = ":9090"
 	defaultShutdownTimeout = 20 * time.Second
 	defaultLogLevel        = "info"
 	defaultLogFormat       = "json"
@@ -65,6 +67,8 @@ type Config struct {
 	// HealthAddr is the listen address of the liveness and readiness
 	// endpoints, which the standard fixes at 8080.
 	HealthAddr string
+	// MetricsAddr is the listen address of the /metrics endpoint.
+	MetricsAddr string
 	// ShutdownTimeout bounds the whole graceful shutdown, drain included. It
 	// must stay below the pod's terminationGracePeriodSeconds.
 	ShutdownTimeout time.Duration
@@ -102,6 +106,7 @@ func Default() Config {
 	return Config{
 		ServerAddr:          defaultServerAddr,
 		HealthAddr:          defaultHealthAddr,
+		MetricsAddr:         defaultMetricsAddr,
 		ShutdownTimeout:     defaultShutdownTimeout,
 		LogLevel:            defaultLogLevel,
 		LogFormat:           defaultLogFormat,
@@ -114,6 +119,7 @@ func Default() Config {
 var flagEnv = map[string]string{
 	"server-addr":            envServerAddr,
 	"health-addr":            envHealthAddr,
+	"metrics-addr":           envMetricsAddr,
 	"shutdown-timeout":       envShutdownTimeout,
 	"log-level":              envLogLevel,
 	"log-format":             envLogFormat,
@@ -135,6 +141,8 @@ func (c *Config) BindFlags(flags *pflag.FlagSet) {
 		"listen address of the Desire Store API data plane")
 	flags.StringVar(&c.HealthAddr, "health-addr", c.HealthAddr,
 		"listen address of the /healthz and /readyz endpoints")
+	flags.StringVar(&c.MetricsAddr, "metrics-addr", c.MetricsAddr,
+		"listen address of the /metrics endpoint")
 	flags.DurationVar(&c.ShutdownTimeout, "shutdown-timeout", c.ShutdownTimeout,
 		"maximum time for graceful shutdown, drain included")
 	flags.StringVarP(&c.LogLevel, "log-level", "l", c.LogLevel,
@@ -202,6 +210,9 @@ func (c Config) Validate() error {
 	}
 	if c.HealthAddr == "" {
 		return fmt.Errorf("health-addr must not be empty")
+	}
+	if c.MetricsAddr == "" {
+		return fmt.Errorf("metrics-addr must not be empty")
 	}
 	if c.ShutdownTimeout <= 0 {
 		return fmt.Errorf("shutdown-timeout must be positive, got %s", c.ShutdownTimeout)

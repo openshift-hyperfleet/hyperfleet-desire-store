@@ -7,8 +7,16 @@ Two PipelineRuns build the Desire Store API image:
 | `hyperfleet-desire-store-on-push` | Push to `main` |
 | `hyperfleet-desire-store-on-tag` | Version tag (`vX.Y.Z` or `vX.Y.Z-rcN`) |
 
-The chart PipelineRuns (`*-chart-push.yaml`, `*-chart-tag.yaml`) are added with
-the Helm chart, so this directory holds image builds only.
+Two more PipelineRuns build the Helm chart from `charts/` into an OCI artifact:
+
+| PipelineRun | Trigger |
+| --- | --- |
+| `hyperfleet-desire-store-chart-on-push` | Push to `main` |
+| `hyperfleet-desire-store-chart-on-tag` | Version tag (`vX.Y.Z` or `vX.Y.Z-rcN`) |
+
+They belong to the `hyperfleet-desire-store-chart` Component in the
+`hyperfleet-charts` Application and use the service account
+`build-pipeline-hyperfleet-desire-store-chart`.
 
 Each inline `pipelineSpec` has a `slack-webhook-notification` task in `finally`.
 It runs only when `$(tasks.status)` is `Failed`. The Slack message links the
@@ -23,7 +31,12 @@ must never be committed or printed in logs.
 
 ## Before these run
 
-The PipelineRuns are inert until the Component is registered in Konflux. See
+Register both Components (`hyperfleet-desire-store` and
+`hyperfleet-desire-store-chart`) and create both service accounts together,
+before enabling repository events. What Pipelines as Code does with a
+PipelineRun whose Component is missing is unverified. See
 the Konflux section of the [README](../README.md) for the registration steps:
-Component, Pipelines as Code repository, `build-pipeline-hyperfleet-desire-store`
-service account, and the Slack Secret.
+the Components, the Pipelines as Code repository, the
+`build-pipeline-hyperfleet-desire-store` and
+`build-pipeline-hyperfleet-desire-store-chart` service accounts, and the Slack
+Secret.

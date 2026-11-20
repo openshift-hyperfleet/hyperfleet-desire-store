@@ -21,6 +21,7 @@ syntax of its flag, except `SHUTDOWN_TIMEOUT` (see below).
 | --- | --- | --- | --- |
 | `--server-addr` | `HYPERFLEET_SERVER_ADDR` | `:8000` | HTTP data-plane listen address. Must not be empty; an invalid or occupied address fails listener startup. REST v1 routes are not mounted until the Postgres store lands. |
 | `--health-addr` | `HYPERFLEET_HEALTH_ADDR` | `:8080` | HTTP listen address for `/healthz` and `/readyz`. Must not be empty; an invalid or occupied address fails listener startup. Port `8080` is the platform default for probes. |
+| `--metrics-addr` | `HYPERFLEET_METRICS_ADDR` | `:9090` | HTTP listen address for `/metrics`. Must not be empty; an invalid or occupied address fails listener startup. Port `9090` is the platform default for metrics. See [metrics.md](metrics.md). |
 | `--shutdown-timeout` | `SHUTDOWN_TIMEOUT` | `20s` | Positive duration bounding graceful shutdown, including in-flight request drain. When it expires, the remaining connections are closed. The pod's `terminationGracePeriodSeconds` must be above the `preStop` sleep plus this value. |
 | `--log-level`, `-l` | `HYPERFLEET_LOG_LEVEL` | `info` | Minimum log severity: `debug`, `info`, `warn`, or `error`. |
 | `--log-format`, `-f` | `HYPERFLEET_LOG_FORMAT` | `json` | Log encoding: `json` or `text`. |

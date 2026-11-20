@@ -41,6 +41,11 @@ TOOL_MOD := tools/go.mod
 gotool = "$(GO)" tool -modfile="$(TOOL_MOD)" $(1)
 GOLANGCI_LINT := $(call gotool,golangci-lint)
 
+# ==== Helm chart ====
+HELM ?= helm
+HELM_TEST_VALUES := charts/ci/default-values.yaml
+HELM_DOCS := $(call gotool,helm-docs) --chart-search-root=charts --sort-values-order=file
+
 # ==== OpenAPI contract ====
 # The contract comes from the spec Go module at the version go.mod pins.
 # make generate copies it to openapi/openapi.yaml and generates the types and
@@ -80,7 +85,7 @@ test: generate ## Run unit tests with the race detector
 	$(GO) test -race -coverprofile=coverage.out ./...
 
 .PHONY: test-all
-test-all: fmt-check vet lint test ## Run every check a presubmit runs
+test-all: fmt-check vet lint test test-helm ## Run every check a presubmit runs
 
 .PHONY: cover
 cover: test ## Show the coverage report
@@ -136,6 +141,34 @@ verify-tools: tools ## Fail if tools/go.mod drifted from the source it pins
 	@git diff --exit-code HEAD -- tools/go.mod tools/go.sum || \
 		(echo "tool modules out of date; run 'make tools'" && exit 1)
 
+##@ Helm Chart
+
+.PHONY: helm-lint
+helm-lint: ## Lint the Helm chart
+	$(HELM) lint charts --values $(HELM_TEST_VALUES)
+
+.PHONY: helm-template
+helm-template: ## Render the Helm chart with the test values
+	$(HELM) template test-release charts --values $(HELM_TEST_VALUES)
+
+.PHONY: helm-docs
+helm-docs: ## Generate the chart README from values.yaml comments
+	$(HELM_DOCS)
+
+.PHONY: verify-helm-docs
+verify-helm-docs: ## Fail if the chart README is out of date
+	@tmp=$$(mktemp -d) && \
+	cp -R charts $$tmp/ && \
+	rm -f $$tmp/charts/README.md && \
+	$(call gotool,helm-docs) --chart-search-root=$$tmp/charts --sort-values-order=file > /dev/null && \
+	{ test -s $$tmp/charts/README.md || { echo "ERROR: helm-docs did not generate charts/README.md."; rm -rf $$tmp; exit 1; }; } && \
+	{ diff -u charts/README.md $$tmp/charts/README.md || { echo "ERROR: charts/README.md is out of date. Run 'make helm-docs' and commit the result."; rm -rf $$tmp; exit 1; }; } && \
+	rm -rf $$tmp
+
+.PHONY: test-helm
+test-helm: verify-helm-docs ## Lint, render and assert the Helm chart
+	@HELM="$(HELM)" KUBECONFORM="$(call gotool,kubeconform)" ./scripts/test-helm.sh
+
 ##@ Container Images
 
 .PHONY: check-container-tool
@@ -168,4 +201,4 @@ validate-tekton: ## Parse the Konflux PipelineRuns as YAML
 	@echo "OK: .tekton PipelineRuns parse"
 
 .PHONY: ci-validate
-ci-validate: fmt-check vet lint test validate-tekton ## Run everything CI runs, except the image build
+ci-validate: fmt-check vet lint test validate-tekton test-helm ## Run everything CI runs, except the image build
