@@ -124,7 +124,9 @@ observability:
 terminationGracePeriodSeconds: 45
 
 # -- Container lifecycle hooks. The `preStop` sleep lets endpoint removal
-# propagate before the service starts to shut down.
+# propagate before the service starts to shut down. The render reads the sleep
+# from `preStop.sleep.seconds`, `exec` `["sleep", "N"]` or `exec`
+# `["/bin/sh", "-c", "sleep N"]`, and fails on any other `preStop` hook.
 lifecycle:
   preStop:
     exec:
