@@ -1,9 +1,10 @@
 // Package server owns the HTTP listeners of the Desire Store API.
 //
-// There are two of them, per the HyperFleet health-endpoints standard: the
-// data plane on the server address, and the liveness and readiness endpoints
-// on the health address. They are separate so that a saturated data plane
-// never delays a probe, which would restart a busy but healthy pod.
+// There are three: the data plane on the server address, the liveness and
+// readiness endpoints on the health address, per the HyperFleet
+// health-endpoints standard, and /metrics on the metrics address, per the
+// metrics standard. They are separate so that a saturated data plane never
+// delays a probe, which would restart a busy but healthy pod.
 package server
 
 import (
@@ -33,22 +34,26 @@ type Options struct {
 	// HealthAddr is the listen address of the liveness and readiness
 	// endpoints.
 	HealthAddr string
+	// MetricsAddr is the listen address of the /metrics endpoint.
+	MetricsAddr string
 	// ShutdownTimeout bounds the whole graceful shutdown, drain included.
 	ShutdownTimeout time.Duration
 }
 
-// Server serves the Desire Store API data plane and its health endpoints.
+// Server serves the Desire Store API data plane, its health endpoints, and
+// its metrics.
 type Server struct {
-	opts   Options
-	log    *slog.Logger
-	ready  atomic.Bool
-	api    *http.Server
-	health *http.Server
+	opts    Options
+	log     *slog.Logger
+	ready   atomic.Bool
+	api     *http.Server
+	health  *http.Server
+	metrics *http.Server
 }
 
-// New builds both listeners; api is the data-plane handler. Nothing is bound
-// until Run is called.
-func New(api http.Handler, opts Options, log *slog.Logger) *Server {
+// New builds the three listeners; api is the data-plane handler and metrics
+// serves /metrics. Nothing is bound until Run is called.
+func New(api, metrics http.Handler, opts Options, log *slog.Logger) *Server {
 	server := &Server{opts: opts, log: log}
 	server.api = &http.Server{
 		Addr:              opts.Addr,
@@ -64,20 +69,31 @@ func New(api http.Handler, opts Options, log *slog.Logger) *Server {
 		ReadHeaderTimeout: healthReadTimeout,
 		IdleTimeout:       idleTimeout,
 	}
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("GET /metrics", metrics)
+	server.metrics = &http.Server{
+		Addr:              opts.MetricsAddr,
+		Handler:           metricsMux,
+		ReadHeaderTimeout: healthReadTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleTimeout,
+	}
 	return server
 }
 
-// Run starts both listeners and blocks until ctx is canceled or a listener
+// Run starts the three listeners and blocks until ctx is canceled or a listener
 // fails. Canceling ctx starts the graceful shutdown sequence.
 func (s *Server) Run(ctx context.Context) error {
-	failures := make(chan error, 2)
+	failures := make(chan error, 3)
 	go s.listen("api", s.api, failures)
 	go s.listen("health", s.health, failures)
+	go s.listen("metrics", s.metrics, failures)
 
 	s.ready.Store(true)
 	s.log.InfoContext(ctx, "Desire Store API started",
 		"server_addr", s.opts.Addr,
 		"health_addr", s.opts.HealthAddr,
+		"metrics_addr", s.opts.MetricsAddr,
 	)
 
 	select {
@@ -98,17 +114,19 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 // Shutdown implements the graceful shutdown sequence: mark not ready, drain
-// the data plane, then stop answering probes. Stopping the health listener
-// last keeps /readyz returning 503 while in-flight requests drain, which is
-// what tells Kubernetes to remove the pod from service endpoints. Both
-// listeners stop even when the drain does not finish, and the error holds
-// the failure of each.
+// the data plane, then stop the metrics listener, then stop answering probes.
+// Stopping the health listener last keeps /readyz returning 503 while
+// in-flight requests drain, which is what tells Kubernetes to remove the pod
+// from service endpoints. Scrapes keep working during the drain. All
+// listeners stop even when the drain does not finish, and the error holds the
+// failure of each.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.ready.Store(false)
 	s.log.InfoContext(ctx, "draining in-flight requests")
 
 	apiErr := stop(ctx, "api", s.api)
-	return errors.Join(apiErr, stop(ctx, "health", s.health))
+	metricsErr := stop(ctx, "metrics", s.metrics)
+	return errors.Join(apiErr, metricsErr, stop(ctx, "health", s.health))
 }
 
 // stop shuts one listener down gracefully. When that does not finish before

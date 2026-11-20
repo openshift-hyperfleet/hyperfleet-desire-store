@@ -76,6 +76,37 @@ func TestEnvironmentParsesShutdownTimeout(t *testing.T) {
 	}
 }
 
+// setMinimalTestEnv pins every environment variable the configuration reads to
+// empty, which ApplyEnv reads as unset, so a variable exported in the
+// developer's shell cannot leak into a test. A setting added to flagEnv is
+// covered without further test changes.
+func setMinimalTestEnv(t *testing.T) {
+	t.Helper()
+	for _, env := range flagEnv {
+		t.Setenv(env, "")
+	}
+}
+
+func TestMetricsAddrFromTheEnvironment(t *testing.T) {
+	setMinimalTestEnv(t)
+	cfg, err := load(t)
+	if err != nil {
+		t.Fatalf("load() error: %v", err)
+	}
+	if cfg.MetricsAddr != defaultMetricsAddr {
+		t.Fatalf("MetricsAddr = %q, want the default %q", cfg.MetricsAddr, defaultMetricsAddr)
+	}
+
+	t.Setenv(envMetricsAddr, ":9191")
+	cfg, err = load(t)
+	if err != nil {
+		t.Fatalf("load() error: %v", err)
+	}
+	if cfg.MetricsAddr != ":9191" {
+		t.Fatalf("MetricsAddr = %q, want the environment value", cfg.MetricsAddr)
+	}
+}
+
 func TestDefaultRejectsMalformedDuration(t *testing.T) {
 	t.Setenv(envShutdownTimeout, "twenty")
 
@@ -112,6 +143,7 @@ func TestValidateRejectsBadValues(t *testing.T) {
 	}{
 		"empty server address":  {func(c *Config) { c.ServerAddr = "" }, "server-addr"},
 		"empty health address":  {func(c *Config) { c.HealthAddr = "" }, "health-addr"},
+		"empty metrics address": {func(c *Config) { c.MetricsAddr = "" }, "metrics-addr"},
 		"zero shutdown timeout": {func(c *Config) { c.ShutdownTimeout = 0 }, "shutdown-timeout"},
 		"unknown log level":     {func(c *Config) { c.LogLevel = "verbose" }, "log-level"},
 		"unknown log format":    {func(c *Config) { c.LogFormat = "xml" }, "log-format"},
@@ -203,6 +235,7 @@ func TestValidateAcceptsCompleteConfiguration(t *testing.T) {
 }
 
 func TestDefaultReadsAccessSettings(t *testing.T) {
+	setMinimalTestEnv(t)
 	t.Setenv(envPartitionClaim, "hf_partition")
 	t.Setenv(envWristbandIssuer, "https://issuer.example")
 	t.Setenv(envWristbandAudience, "desire-store-api")
