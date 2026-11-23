@@ -131,44 +131,54 @@ assert_not_contains "$out" "kind: ServiceMonitor" "ServiceMonitor rendered by de
 assert_not_contains "$out" "kind: PrometheusRule" "PrometheusRule rendered by default"
 assert_not_contains "$out" "grafana_dashboard" "dashboard rendered by default"
 assert_not_contains "$out" "kind: PodDisruptionBudget" "PDB rendered by default"
-assert_not_contains "$out" "SHUTDOWN_TIMEOUT" "empty shutdownTimeout is rendered"
+assert_line "$out" '  SHUTDOWN_TIMEOUT: "20s"' "default shutdown timeout is wrong"
 assert_not_contains "$out" "HYPERFLEET_LOG_LEVEL" "empty log level is rendered"
 pass "default render has the expected resources, ports, probes and addresses"
 
 run_test "optional settings"
-out=$(render --set config.shutdownTimeout=30s --set config.log.level=debug)
-assert_contains "$out" 'SHUTDOWN_TIMEOUT: "30s"' "shutdownTimeout not rendered"
+out=$(render --set config.log.level=debug)
 assert_contains "$out" 'HYPERFLEET_LOG_LEVEL: "debug"' "log level not rendered"
 pass "optional settings render only when set"
 
 run_test "shutdown budget"
-assert_render_fails "terminationGracePeriodSeconds" --set config.shutdownTimeout=60s
-assert_render_fails "terminationGracePeriodSeconds" --set config.shutdownTimeout=1m30s
-out=$(render --set config.shutdownTimeout=60s --set terminationGracePeriodSeconds=70)
-assert_contains "$out" 'SHUTDOWN_TIMEOUT: "60s"' "shutdownTimeout not rendered"
-# The default grace period is 45s and the default preStop sleep 5s: 40s is at the limit.
-assert_render_fails "terminationGracePeriodSeconds" --set config.shutdownTimeout=40s
-assert_render_fails "terminationGracePeriodSeconds" --set config.shutdownTimeout=40000ms
-render --set config.shutdownTimeout=39s > /dev/null || fail "39s is within the grace period"
-# Every form time.ParseDuration accepts is checked; anything else fails.
-assert_render_fails "terminationGracePeriodSeconds" --set config.shutdownTimeout=+40s
-assert_render_fails "terminationGracePeriodSeconds" --set config.shutdownTimeout=40000000us
-assert_render_fails "terminationGracePeriodSeconds" --set config.shutdownTimeout=.7m
-render --set config.shutdownTimeout=39999999999ns > /dev/null || fail "39999999999ns is within the grace period"
-assert_render_fails "non-negative Go duration" --set config.shutdownTimeout=-5s
-assert_render_fails "non-negative Go duration" --set config.shutdownTimeout=20sec
-# Without a preStop hook, nothing is added to the timeout.
-render --set lifecycle=null --set config.shutdownTimeout=44s > /dev/null || fail "44s without preStop is within the grace period"
+assert_render_fails "terminationGracePeriodSeconds" --set config.shutdownTimeoutSeconds=60
+out=$(render --set config.shutdownTimeoutSeconds=60 --set terminationGracePeriodSeconds=70)
+assert_line "$out" '  SHUTDOWN_TIMEOUT: "60s"' "shutdown timeout override was not rendered"
+# The default grace period is 45s and the default preStop sleep is 5s.
+assert_render_fails "terminationGracePeriodSeconds" --set config.shutdownTimeoutSeconds=40
+render --set config.shutdownTimeoutSeconds=39 > /dev/null || fail "39s should fit within the grace period"
+render --set lifecycle=null --set config.shutdownTimeoutSeconds=44 > /dev/null || fail "44s should fit without a preStop hook"
 # Each sleep shape the helper reads counts toward the budget.
 assert_render_fails "terminationGracePeriodSeconds" --set-json 'lifecycle={"preStop":{"exec":{"command":["sleep","30"]}}}'
 assert_render_fails "terminationGracePeriodSeconds" --set-json 'lifecycle={"preStop":{"exec":{"command":["/bin/sh","-c","sleep 30"]}}}'
 assert_render_fails "terminationGracePeriodSeconds" --set lifecycle.preStop.exec=null --set-json 'lifecycle.preStop.sleep={"seconds":30}'
 out=$(render --set lifecycle.preStop.exec=null --set-json 'lifecycle.preStop.sleep={"seconds":10}')
 assert_contains "$out" "seconds: 10" "native preStop sleep not rendered"
+# Leading zeros in sleep arguments are decimal. Reject operands that overflow.
+assert_render_fails "preStop sleep (30)" --set-json 'lifecycle={"preStop":{"exec":{"command":["sleep","030"]}}}'
+assert_render_fails "preStop sleep (8)" --set terminationGracePeriodSeconds=27 \
+  --set-json 'lifecycle={"preStop":{"exec":{"command":["/bin/sh","-c","sleep 08"]}}}'
+render --set-json 'lifecycle={"preStop":{"exec":{"command":["sleep","005"]}}}' > /dev/null || fail "005 should count as 5s"
+assert_render_fails "lifecycle.preStop sleep" --set-json 'lifecycle={"preStop":{"exec":{"command":["sleep","9223372036854775808"]}}}'
 # A hook whose duration the helper cannot read fails instead of passing unchecked.
 assert_render_fails "lifecycle.preStop must be" --set lifecycle.preStop.exec=null --set-json 'lifecycle.preStop.httpGet={"path":"/drain","port":8080}'
 assert_render_fails "lifecycle.preStop must be" --set-json 'lifecycle={"preStop":{"exec":{"command":["/bin/sh","-c","sleep 5; kill 1"]}}}'
 pass "the grace period must exceed the preStop sleep plus the shutdown timeout"
+
+run_test "shutdown timeout values"
+for value in 0 -1 9223372037; do
+  assert_render_fails "shutdownTimeoutSeconds" --set "config.shutdownTimeoutSeconds=$value"
+done
+assert_render_fails "shutdownTimeoutSeconds" --set-json config.shutdownTimeoutSeconds=0.5
+assert_render_fails "shutdownTimeoutSeconds" --set-string config.shutdownTimeoutSeconds=20s
+assert_render_fails "shutdownTimeoutSeconds" --set config.shutdownTimeoutSeconds=null
+assert_render_fails "shutdownTimeout" --set-string config.shutdownTimeout=20s
+pass "the chart accepts only positive integer seconds within the service duration range"
+
+run_test "replica count"
+out=$(render --set replicaCount=0)
+assert_line "$out" '  replicas: 0' "zero replicas were not rendered"
+pass "the release can scale to zero replicas"
 
 run_test "extra volumes"
 out=$(render --set extraVolumes[0].name=ca-certs \

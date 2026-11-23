@@ -1,7 +1,7 @@
 # Default values for hyperfleet-desire-store.
 # This is a YAML-formatted file.
 
-# -- Number of replicas
+# -- Number of replicas. Set to 0 to stop all replicas while keeping the release.
 replicaCount: 1
 
 image:
@@ -119,14 +119,13 @@ observability:
       failureThreshold: 3
 
 # -- Seconds Kubernetes waits for the pod to stop. Must exceed the `preStop`
-# sleep plus `config.shutdownTimeout` with a margin. The render fails when it
-# does not.
+# sleep plus `config.shutdownTimeoutSeconds`. The render fails when it does not.
 terminationGracePeriodSeconds: 45
 
 # -- Container lifecycle hooks. The `preStop` sleep lets endpoint removal
-# propagate before the service starts to shut down. The render reads the sleep
-# from `preStop.sleep.seconds`, `exec` `["sleep", "N"]` or `exec`
-# `["/bin/sh", "-c", "sleep N"]`, and fails on any other `preStop` hook.
+# propagate before the service starts to shut down. The render accepts
+# `preStop.sleep.seconds`, `exec` `["sleep", "N"]`, or a shell running `sleep N`.
+# Set `lifecycle.preStop.exec` to `null` when using `preStop.sleep.seconds`.
 lifecycle:
   preStop:
     exec:
@@ -159,9 +158,8 @@ config:
     # -- Accepted signing algorithms, separated by commas. Empty uses the
     # service default (`ES256`).
     algorithms: ""
-  # -- Graceful shutdown budget as a Go duration. Empty uses the service
-  # default (`20s`).
-  shutdownTimeout: ""
+  # -- Graceful shutdown budget in whole seconds (1 to 9223372036).
+  shutdownTimeoutSeconds: 20
   log:
     # -- Log level (`debug`, `info`, `warn`, `error`). Empty uses the service default.
     level: ""

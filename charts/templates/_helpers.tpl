@@ -81,70 +81,39 @@ Fail the render when the image or a required service setting is unset.
 {{- end }}
 
 {{/*
-Fail the render when the termination grace period cannot cover the preStop
-sleep plus the shutdown timeout. The preStop hook must be absent or a single
-sleep in one of the shapes read below; any other hook fails the render. A
-timeout the template cannot read as a non-negative Go duration also fails it.
+Fail the render unless the termination grace period exceeds the preStop sleep
+plus the shutdown timeout. Accept only a single sleep as a preStop hook.
 */}}
 {{- define "hyperfleet-desire-store.validateShutdownBudget" -}}
-{{- $timeout := trim (toString .Values.config.shutdownTimeout) -}}
-{{- if not $timeout -}}{{- $timeout = "20s" -}}{{- end -}}
-{{- $grace := .Values.terminationGracePeriodSeconds | int -}}
-{{- $sleep := 0 -}}
+{{- $timeout := int64 .Values.config.shutdownTimeoutSeconds -}}
+{{- $grace := int64 .Values.terminationGracePeriodSeconds -}}
+{{- $sleep := int64 0 -}}
 {{- $preStop := dig "preStop" dict (.Values.lifecycle | default dict) -}}
 {{- if $preStop -}}
-{{- $sleep = -1 -}}
+{{- $operand := "" -}}
 {{- $command := list -}}
 {{- range (dig "exec" "command" (list) $preStop) -}}
 {{- $command = append $command (toString .) -}}
 {{- end -}}
-{{- $native := toString (dig "sleep" "seconds" "" $preStop) -}}
 {{- if ne (len (keys $preStop)) 1 -}}
-{{- else if regexMatch "^[0-9]+$" $native -}}
-{{- $sleep = $native | int -}}
-{{- else if and (eq (len $command) 2) (eq (index $command 0) "sleep") (regexMatch "^[0-9]+$" (index $command 1)) -}}
-{{- $sleep = index $command 1 | int -}}
+{{- else if hasKey $preStop "sleep" -}}
+{{- $operand = toJson (dig "sleep" "seconds" "" $preStop) -}}
+{{- else if and (eq (len $command) 2) (eq (index $command 0) "sleep") -}}
+{{- $operand = index $command 1 -}}
 {{- else if and (eq (len $command) 3) (regexMatch "^(/usr)?(/bin/)?(ba)?sh$" (index $command 0)) (eq (index $command 1) "-c") (regexMatch "^\\s*sleep\\s+[0-9]+\\s*$" (index $command 2)) -}}
-{{- $sleep = regexFind "[0-9]+" (index $command 2) | int -}}
+{{- $operand = regexFind "[0-9]+" (index $command 2) -}}
 {{- end -}}
-{{- if lt $sleep 0 -}}
+{{- if not (regexMatch "^[0-9]+$" $operand) -}}
 {{- fail "lifecycle.preStop must be sleep.seconds, exec [\"sleep\", \"N\"] or exec [\"/bin/sh\", \"-c\", \"sleep N\"], so the render can check terminationGracePeriodSeconds against it" -}}
 {{- end -}}
-{{- end -}}
-{{- $unit := "([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h)" -}}
-{{- $duration := trimPrefix "+" $timeout -}}
-{{- $seconds := -1.0 -}}
-{{- if regexMatch "^[0-9]+(\\.[0-9]+)?$" $duration -}}
-{{- $seconds = $duration | float64 -}}
-{{- else if regexMatch (printf "^(%s)+$" $unit) $duration -}}
-{{- $seconds = 0.0 -}}
-{{- range regexFindAll $unit $duration -1 -}}
-{{- $part := . -}}
-{{- $mult := 1.0 -}}
-{{- range $suffix, $m := dict "ns" 0.000000001 "us" 0.000001 "µs" 0.000001 "μs" 0.000001 "ms" 0.001 -}}
-{{- if hasSuffix $suffix $part -}}
-{{- $mult = $m -}}
-{{- $part = trimSuffix $suffix $part -}}
+{{/* Strip leading zeros to force base 10. A failed conversion returns zero. */}}
+{{- $decimal := regexReplaceAll "^0+" $operand "" | default "0" -}}
+{{- $sleep = int64 $decimal -}}
+{{- if ne (toString $sleep) $decimal -}}
+{{- fail (printf "lifecycle.preStop sleep %q must fit in a signed 64-bit integer" $operand) -}}
 {{- end -}}
 {{- end -}}
-{{- if eq $mult 1.0 -}}
-{{- if hasSuffix "h" $part -}}
-{{- $mult = 3600.0 -}}
-{{- $part = trimSuffix "h" $part -}}
-{{- else if hasSuffix "m" $part -}}
-{{- $mult = 60.0 -}}
-{{- $part = trimSuffix "m" $part -}}
-{{- else -}}
-{{- $part = trimSuffix "s" $part -}}
-{{- end -}}
-{{- end -}}
-{{- $seconds = addf $seconds (mulf (printf "0%s" $part | float64) $mult) -}}
-{{- end -}}
-{{- end -}}
-{{- if lt $seconds 0.0 -}}
-{{- fail (printf "config.shutdownTimeout (%s) must be a non-negative Go duration such as 20s or 1m30s" $timeout) -}}
-{{- end -}}
-{{- if le ($grace | float64) (addf $seconds ($sleep | float64)) -}}
-{{- fail (printf "terminationGracePeriodSeconds (%d) must exceed the preStop sleep (%d) plus config.shutdownTimeout (%s)" $grace $sleep $timeout) -}}
+{{- if le (sub $grace $sleep) $timeout -}}
+{{- fail (printf "terminationGracePeriodSeconds (%d) must exceed the preStop sleep (%d) plus config.shutdownTimeoutSeconds (%d)" $grace $sleep $timeout) -}}
 {{- end -}}
 {{- end }}

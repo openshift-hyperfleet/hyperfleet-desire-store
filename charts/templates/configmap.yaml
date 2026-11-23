@@ -24,9 +24,7 @@ data:
   {{- with .Values.config.wristband.algorithms }}
   HYPERFLEET_WRISTBAND_ALGORITHMS: {{ . | quote }}
   {{- end }}
-  {{- with .Values.config.shutdownTimeout }}
-  SHUTDOWN_TIMEOUT: {{ . | quote }}
-  {{- end }}
+  SHUTDOWN_TIMEOUT: {{ printf "%ds" (int64 .Values.config.shutdownTimeoutSeconds) | quote }}
   {{- with .Values.config.log.level }}
   HYPERFLEET_LOG_LEVEL: {{ . | quote }}
   {{- end }}

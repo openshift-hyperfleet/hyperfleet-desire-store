@@ -1,6 +1,6 @@
 # hyperfleet-desire-store
 
-![Version: 1.1.0](https://img.shields.io/badge/Version-1.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.0-dev](https://img.shields.io/badge/AppVersion-0.0.0--dev-informational?style=flat-square)
+![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.0-dev](https://img.shields.io/badge/AppVersion-0.0.0--dev-informational?style=flat-square)
 
 Desire Store API service that transports desires from HyperFleet adapters to appliers
 
@@ -35,7 +35,7 @@ helm install hyperfleet-desire-store ./charts \
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| replicaCount | int | `1` | Number of replicas |
+| replicaCount | int | `1` | Number of replicas. Set to 0 to stop all replicas while keeping the release. |
 | image.registry | string | `"CHANGE_ME"` | Container image registry (no default — must be set) |
 | image.repository | string | `"CHANGE_ME"` | Container image repository (no default — must be set) |
 | image.pullPolicy | string | `"Always"` | Image pull policy |
@@ -78,8 +78,8 @@ helm install hyperfleet-desire-store ./charts \
 | observability.probes.readiness.periodSeconds | int | `10` | Seconds between readiness probes |
 | observability.probes.readiness.timeoutSeconds | int | `3` | Readiness probe timeout in seconds |
 | observability.probes.readiness.failureThreshold | int | `3` | Failed readiness probes before the pod leaves the Service |
-| terminationGracePeriodSeconds | int | `45` | Seconds Kubernetes waits for the pod to stop. Must exceed the `preStop` sleep plus `config.shutdownTimeout` with a margin. The render fails when it does not. |
-| lifecycle | object | `{"preStop":{"exec":{"command":["sleep","5"]}}}` | Container lifecycle hooks. The `preStop` sleep lets endpoint removal propagate before the service starts to shut down. The render reads the sleep from `preStop.sleep.seconds`, `exec` `["sleep", "N"]` or `exec` `["/bin/sh", "-c", "sleep N"]`, and fails on any other `preStop` hook. |
+| terminationGracePeriodSeconds | int | `45` | Seconds Kubernetes waits for the pod to stop. Must exceed the `preStop` sleep plus `config.shutdownTimeoutSeconds`. The render fails when it does not. |
+| lifecycle | object | `{"preStop":{"exec":{"command":["sleep","5"]}}}` | Container lifecycle hooks. The `preStop` sleep lets endpoint removal propagate before the service starts to shut down. The render accepts `preStop.sleep.seconds`, `exec` `["sleep", "N"]`, or a shell running `sleep N`. Set `lifecycle.preStop.exec` to `null` when using `preStop.sleep.seconds`. |
 | config | object | See values.yaml | Service settings, rendered to a ConfigMap of `HYPERFLEET_*` environment variables (see docs/config.md). The listen addresses are not settings here: they come from `ports.api`, `observability.healthPort` and `observability.metricsPort`. Settings marked "required" have no default and the render fails while they are empty. |
 | config.partitionClaim | string | `""` | Wristband claim that carries the caller's partition (required) |
 | config.dbMaxConcurrency | string | `""` | Connection pool size of the Postgres store, at least 1 (required) |
@@ -89,7 +89,7 @@ helm install hyperfleet-desire-store ./charts \
 | config.wristband.jwksUrl | string | `""` | Absolute `http` or `https` URL of the key set that signs Wristbands (required) |
 | config.wristband.jwksCaFile | string | `""` | Path of a PEM CA bundle trusted in addition to the system trust store. Empty uses the service default. |
 | config.wristband.algorithms | string | `""` | Accepted signing algorithms, separated by commas. Empty uses the service default (`ES256`). |
-| config.shutdownTimeout | string | `""` | Graceful shutdown budget as a Go duration. Empty uses the service default (`20s`). |
+| config.shutdownTimeoutSeconds | int | `20` | Graceful shutdown budget in whole seconds (1 to 9223372036). |
 | config.log.level | string | `""` | Log level (`debug`, `info`, `warn`, `error`). Empty uses the service default. |
 | config.log.format | string | `""` | Log format (`json` or `text`). Empty uses the service default. |
 | config.log.output | string | `""` | Log output (`stdout` or `stderr`). Empty uses the service default. |
