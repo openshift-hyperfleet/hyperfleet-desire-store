@@ -72,7 +72,7 @@ Fail the render when the image or a required service setting is unset.
 {{- if not (trim (toString .Values.image.tag)) -}}
 {{- fail "image.tag must be set (e.g. --set image.tag=abc1234)" -}}
 {{- end -}}
-{{- range $key, $value := dict "partitionClaim" .Values.config.partitionClaim "dbMaxConcurrency" .Values.config.dbMaxConcurrency "sweeperIdentity" .Values.config.sweeperIdentity "wristband.issuer" .Values.config.wristband.issuer "wristband.audience" .Values.config.wristband.audience "wristband.jwksUrl" .Values.config.wristband.jwksUrl -}}
+{{- range $key, $value := dict "partitionClaim" .Values.config.partitionClaim "sweeperIdentity" .Values.config.sweeperIdentity "wristband.issuer" .Values.config.wristband.issuer "wristband.audience" .Values.config.wristband.audience "wristband.jwksUrl" .Values.config.wristband.jwksUrl -}}
 {{- if not (trim (toString $value)) -}}
 {{- fail (printf "config.%s must be set (see docs/config.md)" $key) -}}
 {{- end -}}

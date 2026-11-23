@@ -1,3 +1,7 @@
+{{- $dbMaxConcurrency := trim (toString .Values.config.dbMaxConcurrency) -}}
+{{- if or (not (regexMatch "^[0-9]+$" $dbMaxConcurrency)) (lt ($dbMaxConcurrency | int) 1) -}}
+{{- fail (printf "config.dbMaxConcurrency must be set to an integer of at least 1 (got %q)" $dbMaxConcurrency) -}}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,7 +13,7 @@ data:
   HYPERFLEET_HEALTH_ADDR: {{ printf ":%v" .Values.observability.healthPort | quote }}
   HYPERFLEET_METRICS_ADDR: {{ printf ":%v" .Values.observability.metricsPort | quote }}
   HYPERFLEET_PARTITION_CLAIM: {{ .Values.config.partitionClaim | toString | quote }}
-  HYPERFLEET_DB_MAX_CONCURRENCY: {{ .Values.config.dbMaxConcurrency | toString | quote }}
+  HYPERFLEET_DB_MAX_CONCURRENCY: {{ $dbMaxConcurrency | quote }}
   HYPERFLEET_SWEEPER_IDENTITY: {{ .Values.config.sweeperIdentity | toString | quote }}
   HYPERFLEET_WRISTBAND_ISSUER: {{ .Values.config.wristband.issuer | toString | quote }}
   HYPERFLEET_WRISTBAND_AUDIENCE: {{ .Values.config.wristband.audience | toString | quote }}

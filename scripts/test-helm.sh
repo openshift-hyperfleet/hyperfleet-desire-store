@@ -261,6 +261,20 @@ for setting in image.registry image.repository image.tag \
 done
 pass "each empty image value and required setting fails the render"
 
+run_test "dbMaxConcurrency"
+expected_error="config.dbMaxConcurrency must be set to an integer of at least 1"
+for value in 0 -1; do
+  assert_render_fails "$expected_error" --set "config.dbMaxConcurrency=$value"
+done
+for value in 0 -1 ten 5.0 9223372036854775808; do
+  assert_render_fails "$expected_error" --set-string "config.dbMaxConcurrency=$value"
+done
+out=$(render --set config.dbMaxConcurrency=1)
+assert_line "$out" '  HYPERFLEET_DB_MAX_CONCURRENCY: "1"' "dbMaxConcurrency integer value was not rendered"
+out=$(render --set-string "config.dbMaxConcurrency= 5 ")
+assert_line "$out" '  HYPERFLEET_DB_MAX_CONCURRENCY: "5"' "dbMaxConcurrency string value was not trimmed"
+pass "the ConfigMap contains the validated positive integer"
+
 run_test "schema"
 # Helm <= 3.18 prints the schema path with dots, newer Helm with slashes.
 if out=$(render --set-string monitoring.serviceMonitor.enabled=false 2>&1); then
