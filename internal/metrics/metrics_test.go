@@ -95,8 +95,11 @@ func TestHandlerServesTheRegistry(t *testing.T) {
 	m := New("v1.2.3", "abc123")
 	m.ObserveRequest("GET", "/x", 200, "", time.Millisecond)
 
+	handler := m.Handler()
+	// The first scrape is counted, so the second one reports it.
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	recorder := httptest.NewRecorder()
-	m.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
@@ -105,6 +108,8 @@ func TestHandlerServesTheRegistry(t *testing.T) {
 	for _, want := range []string{
 		"hyperfleet_desire_store_build_info{",
 		`hyperfleet_desire_store_requests_total{component="desire-store",method="GET",path="/x",status_code="200"`,
+		`promhttp_metric_handler_requests_total{code="200"} 1`,
+		"promhttp_metric_handler_requests_in_flight 1",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("scrape lacks %q:\n%s", want, body)

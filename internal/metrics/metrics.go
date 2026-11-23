@@ -9,7 +9,8 @@
 //   - hyperfleet_desire_store_build_info (commit, go_version)
 //
 // All carry the constant labels component and version. The Go and process
-// collectors are registered too. No metric has a partition label: with 10,000
+// collectors are registered too, and the /metrics handler counts its own
+// scrapes. No metric has a partition label: with 10,000
 // partitions it would exceed the standard's limit of 100 values per label.
 // See docs/metrics.md.
 package metrics
@@ -90,9 +91,10 @@ func New(version, commit string) *Metrics {
 	return m
 }
 
-// Handler serves the registry in the Prometheus text format.
+// Handler serves the registry in the Prometheus text format. The scrapes are
+// counted in the same registry, as promhttp.Handler does for the default one.
 func (m *Metrics) Handler() http.Handler {
-	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{})
+	return promhttp.InstrumentMetricHandler(m.registry, promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{}))
 }
 
 // ObserveRequest records one served request. A non-empty errorCode also

@@ -67,6 +67,8 @@ func New(api, metrics http.Handler, opts Options, log *slog.Logger) *Server {
 		Addr:              opts.HealthAddr,
 		Handler:           server.healthHandler(),
 		ReadHeaderTimeout: healthReadTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 	}
 	metricsMux := http.NewServeMux()
@@ -76,6 +78,7 @@ func New(api, metrics http.Handler, opts Options, log *slog.Logger) *Server {
 		Handler:           metricsMux,
 		ReadHeaderTimeout: healthReadTimeout,
 		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 	}
 	return server

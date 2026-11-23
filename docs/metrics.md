@@ -25,7 +25,9 @@ Every metric has the constant labels `component` (`desire-store`) and
 | `hyperfleet_desire_store_build_info` | gauge | `commit`, `go_version` | Always 1. |
 
 The Go collector (`go_*`) and the process collector (`process_*`) are
-registered as well.
+registered as well. The handler counts its own scrapes in
+`promhttp_metric_handler_requests_total` (label `code`) and
+`promhttp_metric_handler_requests_in_flight`. These have no constant labels.
 
 Buckets of the duration histogram, in seconds: `0.005`, `0.01`, `0.025`,
 `0.05`, `0.1`, `0.25`, `0.5`, `1`, `2.5`, `5`, `10`.
