@@ -190,6 +190,8 @@ assert_contains "$out" "kind: ServiceMonitor" "ServiceMonitor missing"
 assert_contains "$out" "port: metrics" "ServiceMonitor port missing"
 assert_not_contains "$out" "kind: PrometheusRule" "PrometheusRule rendered with only the ServiceMonitor on"
 assert_contains "$out" "honorLabels: true" "honorLabels default is not true"
+assert_contains "$out" "targetLabel: component" "component target label missing"
+assert_contains "$out" "replacement: desire-store" "component label value missing"
 pass "ServiceMonitor renders on the metrics port"
 
 run_test "serviceMonitor namespaceSelector"
@@ -226,6 +228,8 @@ run_test "dashboard"
 out=$(render --set monitoring.dashboard.enabled=true)
 assert_contains "$out" 'grafana_dashboard: "1"' "dashboard label missing"
 assert_contains "$out" "hyperfleet-desire-store.json" "dashboard key missing"
+assert_contains "$out" 'label_values(up{component=\"desire-store\"}, namespace)' "namespace selector is not the component-scoped up query"
+assert_contains "$out" 'label_values(up{component=\"desire-store\", namespace=~\"$namespace\"}, service)' "service selector is not the component-scoped up query"
 pass "dashboard ConfigMap renders"
 
 run_test "monitoring resources schema check"

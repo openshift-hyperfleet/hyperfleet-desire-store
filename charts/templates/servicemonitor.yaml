@@ -31,6 +31,10 @@ spec:
       interval: {{ .Values.monitoring.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout }}
       honorLabels: {{ .Values.monitoring.serviceMonitor.honorLabels }}
+      {{- /* Stamp the same component label the service puts on its own metrics onto every scrape target. `up` carries it even when the scrape fails, which is how the dashboard keeps failed targets in its selectors. */}}
+      relabelings:
+        - targetLabel: component
+          replacement: desire-store
       {{- with .Values.monitoring.serviceMonitor.metricRelabeling }}
       metricRelabelings:
         {{- toYaml . | nindent 8 }}

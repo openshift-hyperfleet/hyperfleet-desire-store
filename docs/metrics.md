@@ -85,7 +85,9 @@ any other stack, check its selectors `[unverified]`.
 
 The `PrometheusRule` queries are scoped to the release's namespace and Service
 through the labels the ServiceMonitor adds to each target; see
-[alerts.md](alerts.md).
+[alerts.md](alerts.md). The ServiceMonitor also stamps the target label
+`component="desire-store"` on every target, the same constant label the
+service's own metrics carry.
 
 The metrics listener has no authentication, so keep the Service inside the
 cluster.
@@ -95,6 +97,13 @@ cluster.
 `charts/dashboards/hyperfleet-desire-store.json` has the template variables
 `datasource`, `namespace` and `service`. Every panel filters on `namespace` and
 `service`.
+
+The `namespace` and `service` options come from `up` scoped by the
+`component="desire-store"` target label, not from `build_info`: `up` exists for
+every scrape target, so a target that has failed every scrape from startup
+stays in the selectors and the Target up panel. This needs the chart's
+`ServiceMonitor`; a custom scrape config must stamp the same labels
+(`namespace`, `service`, `component`) for the variables to fill.
 
 No panel uses a `partition` label (see [Per-partition data](#per-partition-data)).
 The request panels stay empty until `serve` mounts the router.
