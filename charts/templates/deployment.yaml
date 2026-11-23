@@ -55,10 +55,16 @@ spec:
             {{- with .Values.extraEnvFrom }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- with .Values.extraEnv }}
+          {{- /* Explicit env takes precedence over all envFrom sources. */}}
           env:
+            - name: SHUTDOWN_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "hyperfleet-desire-store.fullname" . }}
+                  key: SHUTDOWN_TIMEOUT
+            {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: {{ .Values.observability.probes.liveness.path }}

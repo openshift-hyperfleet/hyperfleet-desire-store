@@ -175,6 +175,30 @@ assert_render_fails "shutdownTimeoutSeconds" --set config.shutdownTimeoutSeconds
 assert_render_fails "shutdownTimeout" --set-string config.shutdownTimeout=20s
 pass "the chart accepts only positive integer seconds within the service duration range"
 
+run_test "shutdown timeout environment"
+expected_error="extraEnv must not set SHUTDOWN_TIMEOUT"
+assert_render_fails "$expected_error" --set config.shutdownTimeoutSeconds=20 --set terminationGracePeriodSeconds=45 \
+  --set-json 'extraEnv=[{"name":"SHUTDOWN_TIMEOUT","value":"60s"}]'
+assert_render_fails "$expected_error" \
+  --set-json 'extraEnv=[{"name":"SHUTDOWN_TIMEOUT","valueFrom":{"secretKeyRef":{"name":"settings","key":"timeout"}}}]'
+out=$(render \
+  --set-json 'extraEnv=[{"name":"DB_PASSWORD","valueFrom":{"secretKeyRef":{"name":"db-credentials","key":"password"}}}]' \
+  --set-json 'extraEnvFrom=[{"secretRef":{"name":"db-env"}},{"configMapRef":{"name":"external-settings"}}]')
+timeout_env='          env:
+            - name: SHUTDOWN_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: test-release-hyperfleet-desire-store
+                  key: SHUTDOWN_TIMEOUT'
+if [[ "$out" != *"$timeout_env"* ]]; then
+  fail "the Deployment does not pin SHUTDOWN_TIMEOUT to the chart ConfigMap"
+fi
+assert_line "$out" '            - name: DB_PASSWORD' "extraEnv credential was not rendered"
+assert_line "$out" '                  name: db-credentials' "extraEnv secret reference was not rendered"
+assert_line "$out" '                name: db-env' "extraEnvFrom secret was not rendered"
+assert_line "$out" '                name: external-settings' "extraEnvFrom ConfigMap was not rendered"
+pass "the chart owns SHUTDOWN_TIMEOUT and renders additional credential variables"
+
 run_test "replica count"
 out=$(render --set replicaCount=0)
 assert_line "$out" '  replicas: 0' "zero replicas were not rendered"

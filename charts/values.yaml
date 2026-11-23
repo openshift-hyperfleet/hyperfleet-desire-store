@@ -131,7 +131,7 @@ lifecycle:
     exec:
       command: ["sleep", "5"]
 
-# -- Service settings, rendered to a ConfigMap of `HYPERFLEET_*` environment
+# -- Service settings, rendered to a ConfigMap of environment
 # variables (see docs/config.md). The listen addresses are not settings here:
 # they come from `ports.api`, `observability.healthPort` and
 # `observability.metricsPort`. Settings marked "required" have no default and
@@ -169,10 +169,11 @@ config:
     output: ""
 
 # -- Additional environment variables for the container, for example database
-# credentials from a Secret
+# credentials from a Secret. Use `config.shutdownTimeoutSeconds` to set `SHUTDOWN_TIMEOUT`.
 extraEnv: []
 
-# -- Additional `envFrom` sources for the container
+# -- Additional `envFrom` sources for the container.
+# Sources in `extraEnvFrom` must not supply `SHUTDOWN_TIMEOUT`.
 extraEnvFrom: []
 
 # -- Additional volumes for the pod, for example a ConfigMap or Secret that

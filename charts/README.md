@@ -80,7 +80,7 @@ helm install hyperfleet-desire-store ./charts \
 | observability.probes.readiness.failureThreshold | int | `3` | Failed readiness probes before the pod leaves the Service |
 | terminationGracePeriodSeconds | int | `45` | Seconds Kubernetes waits for the pod to stop. Must exceed the `preStop` sleep plus `config.shutdownTimeoutSeconds`. The render fails when it does not. |
 | lifecycle | object | `{"preStop":{"exec":{"command":["sleep","5"]}}}` | Container lifecycle hooks. The `preStop` sleep lets endpoint removal propagate before the service starts to shut down. The render accepts `preStop.sleep.seconds`, `exec` `["sleep", "N"]`, or a shell running `sleep N`. Set `lifecycle.preStop.exec` to `null` when using `preStop.sleep.seconds`. |
-| config | object | See values.yaml | Service settings, rendered to a ConfigMap of `HYPERFLEET_*` environment variables (see docs/config.md). The listen addresses are not settings here: they come from `ports.api`, `observability.healthPort` and `observability.metricsPort`. Settings marked "required" have no default and the render fails while they are empty. |
+| config | object | See values.yaml | Service settings, rendered to a ConfigMap of environment variables (see docs/config.md). The listen addresses are not settings here: they come from `ports.api`, `observability.healthPort` and `observability.metricsPort`. Settings marked "required" have no default and the render fails while they are empty. |
 | config.partitionClaim | string | `""` | Wristband claim that carries the caller's partition (required) |
 | config.dbMaxConcurrency | string | `""` | Connection pool size of the Postgres store, at least 1 (required) |
 | config.sweeperIdentity | string | `""` | `hf_identity` of the centralized sweeper, `system:serviceaccount:<namespace>:<name>` (required) |
@@ -93,8 +93,8 @@ helm install hyperfleet-desire-store ./charts \
 | config.log.level | string | `""` | Log level (`debug`, `info`, `warn`, `error`). Empty uses the service default. |
 | config.log.format | string | `""` | Log format (`json` or `text`). Empty uses the service default. |
 | config.log.output | string | `""` | Log output (`stdout` or `stderr`). Empty uses the service default. |
-| extraEnv | list | `[]` | Additional environment variables for the container, for example database credentials from a Secret |
-| extraEnvFrom | list | `[]` | Additional `envFrom` sources for the container |
+| extraEnv | list | `[]` | Additional environment variables for the container, for example database credentials from a Secret. Use `config.shutdownTimeoutSeconds` to set `SHUTDOWN_TIMEOUT`. |
+| extraEnvFrom | list | `[]` | Additional `envFrom` sources for the container. Sources in `extraEnvFrom` must not supply `SHUTDOWN_TIMEOUT`. |
 | extraVolumes | list | `[]` | Additional volumes for the pod, for example a ConfigMap or Secret that holds the CA bundle `config.wristband.jwksCaFile` points to |
 | extraVolumeMounts | list | `[]` | Additional volume mounts for the container |
 | monitoring | object | `{"dashboard":{"enabled":false},"prometheusRule":{"additionalLabels":{},"alerts":{"down":{"for":"5m"},"highErrorRatio":{"for":"10m","minRequestRate":0.1,"threshold":0.05},"highLatency":{"for":"10m","minRequestRate":0.1,"thresholdSeconds":1}},"enabled":false,"namespace":""},"serviceMonitor":{"enabled":false,"honorLabels":true,"interval":"30s","labels":{},"metricRelabeling":[],"namespace":"","namespaceSelector":{},"scrapeTimeout":"10s"}}` | Monitoring integration. Each resource needs the Prometheus Operator CRDs or a Grafana dashboard sidecar from the monitoring stack. |

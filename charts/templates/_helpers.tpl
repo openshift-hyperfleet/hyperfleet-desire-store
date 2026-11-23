@@ -77,6 +77,11 @@ Fail the render when the image or a required service setting is unset.
 {{- fail (printf "config.%s must be set (see docs/config.md)" $key) -}}
 {{- end -}}
 {{- end -}}
+{{- range .Values.extraEnv -}}
+{{- if eq (toString .name) "SHUTDOWN_TIMEOUT" -}}
+{{- fail "extraEnv must not set SHUTDOWN_TIMEOUT. Use config.shutdownTimeoutSeconds." -}}
+{{- end -}}
+{{- end -}}
 {{- include "hyperfleet-desire-store.validateShutdownBudget" . -}}
 {{- end }}
 
