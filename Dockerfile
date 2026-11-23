@@ -40,8 +40,9 @@ COPY --from=builder /build/LICENSE /licenses/LICENSE
 
 USER 65532:65532
 
-# 8000 serves the Desire Store API data plane; 8080 serves /healthz and /readyz.
-EXPOSE 8000 8080
+# 8000 serves the Desire Store API data plane; 8080 serves /healthz and /readyz;
+# 9090 serves /metrics.
+EXPOSE 8000 8080 9090
 
 ENTRYPOINT ["/app/hyperfleet-desire-store"]
 CMD ["serve"]

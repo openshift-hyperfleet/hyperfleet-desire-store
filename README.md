@@ -11,7 +11,7 @@ The service is part of the Desire Store design:
 
 ## Status
 
-The process starts, serves the standard health endpoints, shuts down
+The process starts, serves the standard health and metrics endpoints, shuts down
 gracefully, and builds a FIPS-compliant image.
 
 The REST v1 service is implemented in the same layers as hyperfleet-api:
@@ -38,7 +38,7 @@ it.
 ```bash
 make generate   # OpenAPI types and client into pkg/api/openapi; build, test, vet, and lint run it
 make build      # bin/hyperfleet-desire-store
-make run        # serve with text logs on :8000 and :8080; set the required settings first
+make run        # serve with text logs on :8000, :8080 and :9090; set the required settings first
 make test       # unit tests with the race detector
 make lint       # golangci-lint, pinned in tools/go.mod
 make ci-validate  # everything CI runs, except the image build
@@ -52,9 +52,11 @@ make ci-validate  # everything CI runs, except the image build
 | --- | --- | --- |
 | `8080` | `/healthz` | Liveness. Reports process state only, never a dependency. |
 | `8080` | `/readyz` | Readiness. `503` during startup and across the shutdown drain. |
+| `9090` | `/metrics` | Prometheus metrics. See [docs/metrics.md](docs/metrics.md). |
 | `8000` | `/api/hyperfleet/desire-store/v1/...` | Desire Store REST v1 data plane, not mounted yet (see [Status](#status)). |
 
-Both follow the [health endpoints standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/health-endpoints.md).
+The probes follow the [health endpoints standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/health-endpoints.md).
+`/metrics` follows the [metrics standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/metrics.md).
 
 ### Configuration
 
@@ -65,6 +67,7 @@ defaults. A malformed value fails startup instead of being ignored.
 | --- | --- | --- |
 | `--server-addr` | `HYPERFLEET_SERVER_ADDR` | `:8000` |
 | `--health-addr` | `HYPERFLEET_HEALTH_ADDR` | `:8080` |
+| `--metrics-addr` | `HYPERFLEET_METRICS_ADDR` | `:9090` |
 | `--shutdown-timeout` | `SHUTDOWN_TIMEOUT` | `20s` |
 | `--log-level`, `-l` | `HYPERFLEET_LOG_LEVEL` | `info` |
 | `--log-format`, `-f` | `HYPERFLEET_LOG_FORMAT` | `json` |
@@ -96,11 +99,11 @@ Settings and naming follow the [configuration standard](https://github.com/opens
 and the [logging specification](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/logging-specification.md).
 
 On `SIGTERM` or `SIGINT` the service marks itself not ready, drains in-flight
-requests, and stops the health listener last, per the
+requests, stops the metrics listener, and stops the health listener last, per the
 [graceful shutdown standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/graceful-shutdown.md).
 The data-plane listener closes when the drain starts. A response whose headers
 are written during the drain carries `Connection: close`. When the drain does not finish within
-`SHUTDOWN_TIMEOUT`, the service closes the remaining connections on both
+`SHUTDOWN_TIMEOUT`, the service closes the remaining connections on all
 listeners and exits with an error.
 
 Kubernetes removes a terminating pod from Service endpoints asynchronously, so
@@ -121,7 +124,8 @@ internal/presenters/          # stored desires to REST v1 wire shapes, list curs
 openapi/                      # oapi-codegen config and overlay; make generate copies the contract here
 pkg/api/openapi/              # generated REST v1 types and client (not committed)
 internal/errors/              # ServiceError and its RFC 9457 problem form
-internal/server/              # data plane and health listeners, shutdown
+internal/metrics/             # Prometheus registry and request metrics, see docs/metrics.md
+internal/server/              # data plane, health and metrics listeners, shutdown
 tools/                        # pinned Go tools (golangci-lint, yq, oapi-codegen)
 .tekton/                      # Konflux PipelineRuns for the image build
 .hyperfleet.yaml              # repository type, read by HyperFleet tooling

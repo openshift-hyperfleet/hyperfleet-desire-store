@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/config"
+	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/metrics"
 	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/server"
 )
 
@@ -57,7 +58,12 @@ func serve(ctx context.Context, cfg config.Config) error {
 
 	// The v1 routes are mounted here once the store is wired in; until then
 	// every path is a 404 and the listener only matches the deployment shape.
+	// handlers.NewRouter takes m when it is mounted.
 	api := http.NewServeMux()
-	opts := server.Options{Addr: cfg.ServerAddr, HealthAddr: cfg.HealthAddr, ShutdownTimeout: cfg.ShutdownTimeout}
-	return server.New(api, opts, logger).Run(shutdownCtx)
+	m := metrics.New(version, commit)
+	opts := server.Options{
+		Addr: cfg.ServerAddr, HealthAddr: cfg.HealthAddr, MetricsAddr: cfg.MetricsAddr,
+		ShutdownTimeout: cfg.ShutdownTimeout,
+	}
+	return server.New(api, m.Handler(), opts, logger).Run(shutdownCtx)
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/auth"
 	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/auth/authtest"
 	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/errors"
+	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/metrics"
 	"github.com/openshift-hyperfleet/hyperfleet-desire-store/internal/services"
 )
 
@@ -33,6 +34,7 @@ type testAPI struct {
 	signer  *authtest.Signer
 	store   services.Store
 	handler http.Handler
+	metrics *metrics.Metrics
 }
 
 type apiOptions struct {
@@ -56,11 +58,12 @@ func newTestAPI(t *testing.T, opts ...func(*apiOptions)) *testAPI {
 	t.Cleanup(validator.Close)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler, err := NewRouter(services.NewDesireService(options.store, authtest.SweeperID), validator, logger)
+	m := metrics.New("test", "test")
+	handler, err := NewRouter(services.NewDesireService(options.store, authtest.SweeperID), validator, m, logger)
 	if err != nil {
 		t.Fatalf("NewRouter() error: %v", err)
 	}
-	return &testAPI{signer: signer, store: options.store, handler: handler}
+	return &testAPI{signer: signer, store: options.store, handler: handler, metrics: m}
 }
 
 func (a *testAPI) token(t *testing.T, class auth.CallerClass, identity, partition string) string {

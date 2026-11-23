@@ -22,6 +22,7 @@ const (
 // is an expected condition, which the logging specification logs below it.
 func handleError(w http.ResponseWriter, r *http.Request, log *slog.Logger, err *errors.ServiceError) {
 	ctx := r.Context()
+	recordErrorCode(ctx, err.Code)
 	attrs := []any{
 		"status", err.HTTPCode, "error_code", err.Code, "error_type", errors.TypeBase + err.Type.Slug,
 		"error", err.Reason, "method", r.Method, "path", r.URL.EscapedPath(),
