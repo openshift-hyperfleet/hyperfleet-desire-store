@@ -160,9 +160,18 @@ make image                        # build locally
 make image-push IMAGE_TAG=v0.1.0  # build and push
 ```
 
-The build is FIPS-compliant (`CGO_ENABLED=1`, `GOEXPERIMENT=boringcrypto`) and
-runs as UID `65532`, per the
+The image runs as UID `65532` and is FIPS-compliant, per the
 [container image standard](https://github.com/openshift-hyperfleet/architecture/blob/main/hyperfleet/standards/container-image-standard.md).
+FIPS mode is on only in the container image. Local builds and tests run without
+it. The Dockerfile builds the binary with `GOFIPS140=v1.0.0` and the `fips` and
+`no_openssl` tags, and then checks it. The comments in the `Dockerfile` and in
+`cmd/hyperfleet-desire-store/fips.go` explain each part.
+
+Do not disable TLS 1.2 EMS enforcement with `fips140ems=0` in the environment,
+module/workspace defaults, or main-package directives. The build check rejects
+compiled overrides only. Neither that check nor the runtime FIPS-mode guard
+detects a deployment-time `GODEBUG=fips140ems=0` override; deployment
+configuration must be reviewed separately.
 
 ## Konflux
 
