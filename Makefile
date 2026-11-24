@@ -18,11 +18,8 @@ LDFLAGS := -s -w \
 	-X main.commit=$(GIT_SHA)$(GIT_DIRTY) \
 	-X main.date=$(BUILD_DATE)
 
-# FIPS-compliant builds are mandatory for shipped HyperFleet services: the
-# boringcrypto experiment makes the Red Hat Go toolchain use the system
-# OpenSSL, which is why the runtime base image is ubi-minimal and not ubi-micro.
+# FIPS mode is turned on only in the container image build. See the Dockerfile.
 CGO_ENABLED ?= 1
-GOEXPERIMENT ?= boringcrypto
 
 # ==== Container image ====
 QUAY_ORG ?= openshift-hyperfleet
@@ -73,7 +70,7 @@ generate: ## Generate OpenAPI types and client using oapi-codegen
 
 .PHONY: build
 build: generate ## Build the service binary into bin/
-	CGO_ENABLED=$(CGO_ENABLED) GOEXPERIMENT=$(GOEXPERIMENT) \
+	CGO_ENABLED=$(CGO_ENABLED) \
 		$(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BINARY_PATH) ./cmd/$(BINARY_NAME)
 
 .PHONY: run
