@@ -1,0 +1,71 @@
+{{- if .Values.monitoring.prometheusRule.enabled }}
+{{- $fullname := include "hyperfleet-desire-store.fullname" . }}
+{{- $scope := printf `namespace="%s", service="%s"` .Release.Namespace $fullname }}
+{{- $alerts := .Values.monitoring.prometheusRule.alerts }}
+{{- $total := printf `sum by (namespace, service) (rate(hyperfleet_desire_store_requests_total{%s}[5m]))` $scope }}
+{{- $runbook := "https://github.com/openshift-hyperfleet/hyperfleet-desire-store/blob/main/docs/alerts.md" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $fullname }}-alerts
+  {{- if .Values.monitoring.prometheusRule.namespace }}
+  namespace: {{ .Values.monitoring.prometheusRule.namespace }}
+  {{- else }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+  labels:
+    {{- include "hyperfleet-desire-store.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+  - name: hyperfleet-desire-store.rules
+    interval: 30s
+    rules:
+    {{- if .Values.monitoring.serviceMonitor.enabled }}
+    - alert: HyperFleetDesireStoreDown
+      expr: |
+        absent(up{ {{- $scope -}} }) or up{ {{- $scope -}} } == 0
+      for: {{ $alerts.down.for | quote }}
+      labels:
+        severity: critical
+        component: desire-store
+      annotations:
+        summary: "Desire Store API is down"
+        description: "The metrics endpoint of {{ $fullname }} in namespace {{ .Release.Namespace }} is not responding. The service may be down or unreachable."
+        runbook_url: "{{ $runbook }}#hyperfleetdesirestoredown"
+    {{- end }}
+    - alert: HyperFleetDesireStoreHighErrorRatio
+      expr: |
+        (
+          sum by (namespace, service) (rate(hyperfleet_desire_store_requests_total{ {{- $scope -}}, status_code=~"5.."}[5m]))
+          /
+          {{ $total }}
+        ) > {{ $alerts.highErrorRatio.threshold }}
+        and
+        {{ $total }} > {{ $alerts.highErrorRatio.minRequestRate }}
+      for: {{ $alerts.highErrorRatio.for | quote }}
+      labels:
+        severity: warning
+        component: desire-store
+      annotations:
+        summary: "High 5xx ratio in Desire Store API"
+        description: "{{`{{ $value | humanizePercentage }}`}} of requests to {{ $fullname }} in namespace {{ .Release.Namespace }} fail with a 5xx status."
+        runbook_url: "{{ $runbook }}#hyperfleetdesirestorehigherrorratio"
+    - alert: HyperFleetDesireStoreHighLatency
+      expr: |
+        histogram_quantile(0.99,
+          sum by (namespace, service, le) (rate(hyperfleet_desire_store_request_duration_seconds_bucket{ {{- $scope -}} }[5m]))
+        ) > {{ $alerts.highLatency.thresholdSeconds }}
+        and
+        {{ $total }} > {{ $alerts.highLatency.minRequestRate }}
+      for: {{ $alerts.highLatency.for | quote }}
+      labels:
+        severity: warning
+        component: desire-store
+      annotations:
+        summary: "High request latency in Desire Store API"
+        description: "p99 request duration of {{ $fullname }} in namespace {{ .Release.Namespace }} is {{`{{ $value | humanize }}`}}s."
+        runbook_url: "{{ $runbook }}#hyperfleetdesirestorehighlatency"
+{{- end }}

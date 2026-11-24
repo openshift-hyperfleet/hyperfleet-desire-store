@@ -1,0 +1,241 @@
+# Default values for hyperfleet-desire-store.
+# This is a YAML-formatted file.
+
+# -- Number of replicas. Set to 0 to stop all replicas while keeping the release.
+replicaCount: 1
+
+image:
+  # -- Container image registry (no default — must be set)
+  registry: CHANGE_ME
+  # -- Container image repository (no default — must be set)
+  repository: CHANGE_ME
+  # -- Image pull policy
+  pullPolicy: Always
+  # -- Image tag (no default — must be set via `--set image.tag=<version>`)
+  tag: ""
+
+# -- Secrets for pulling images from private registries
+imagePullSecrets: []
+# -- Override the chart name used in resource names
+nameOverride: ""
+# -- Override the full release name used in resource names
+fullnameOverride: ""
+
+# -- ServiceAccount configuration
+serviceAccount:
+  # -- Create a ServiceAccount
+  create: true
+  # -- Annotations added to the ServiceAccount
+  annotations: {}
+  # -- Override the ServiceAccount name (defaults to the release fullname)
+  name: ""
+
+# -- Additional annotations applied to all pods
+podAnnotations: {}
+# -- Additional labels applied to all pods
+podLabels: {}
+
+# -- Pod-level security context
+podSecurityContext:
+  # -- Filesystem group for volume mounts
+  fsGroup: 65532
+  # -- Run all containers as non-root
+  runAsNonRoot: true
+  # -- UID for all containers
+  runAsUser: 65532
+
+# -- Container-level security context
+securityContext:
+  # -- Mount root filesystem as read-only
+  readOnlyRootFilesystem: true
+  # -- Disallow privilege escalation
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- CPU and memory resource requests and limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# -- Node selector constraints for pod scheduling
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling
+tolerations: []
+
+# -- Affinity rules for pod scheduling
+affinity: {}
+
+# -- PodDisruptionBudget configuration
+podDisruptionBudget:
+  # -- Enable the PDB
+  enabled: false
+  # -- Maximum number of pods that can be unavailable during disruption
+  maxUnavailable: 1
+
+# -- Listen port of the data plane (`HYPERFLEET_SERVER_ADDR` is generated from it)
+ports:
+  # -- Data-plane port
+  api: 8000
+
+# -- Health and metrics listeners. The listen addresses the service reads are
+# generated from these ports, so the probes, the Service and the ServiceMonitor
+# always match the listeners.
+observability:
+  # -- Port of `/healthz` and `/readyz`
+  healthPort: 8080
+  # -- Port of `/metrics`
+  metricsPort: 9090
+  probes:
+    liveness:
+      # -- Liveness probe path
+      path: /healthz
+      # -- Seconds before the first liveness probe
+      initialDelaySeconds: 15
+      # -- Seconds between liveness probes
+      periodSeconds: 20
+      # -- Liveness probe timeout in seconds
+      timeoutSeconds: 5
+      # -- Failed liveness probes before the container restarts
+      failureThreshold: 3
+    readiness:
+      # -- Readiness probe path
+      path: /readyz
+      # -- Seconds before the first readiness probe
+      initialDelaySeconds: 5
+      # -- Seconds between readiness probes
+      periodSeconds: 10
+      # -- Readiness probe timeout in seconds
+      timeoutSeconds: 3
+      # -- Failed readiness probes before the pod leaves the Service
+      failureThreshold: 3
+
+# -- Seconds Kubernetes waits for the pod to stop. Must exceed the `preStop`
+# sleep plus `config.shutdownTimeoutSeconds`. The render fails when it does not.
+terminationGracePeriodSeconds: 45
+
+# -- Container lifecycle hooks. The `preStop` sleep lets endpoint removal
+# propagate before the service starts to shut down. The render accepts
+# `preStop.sleep.seconds`, `exec` `["sleep", "N"]`, or a shell running `sleep N`.
+# Set `lifecycle.preStop.exec` to `null` when using `preStop.sleep.seconds`.
+lifecycle:
+  preStop:
+    exec:
+      command: ["sleep", "5"]
+
+# -- Service settings, rendered to a ConfigMap of environment
+# variables (see docs/config.md). The listen addresses are not settings here:
+# they come from `ports.api`, `observability.healthPort` and
+# `observability.metricsPort`. Settings marked "required" have no default and
+# the render fails while they are empty.
+# @default -- See values.yaml
+config:
+  # -- Wristband claim that carries the caller's partition (required)
+  partitionClaim: ""
+  # -- Connection pool size of the Postgres store, at least 1 (required)
+  dbMaxConcurrency: ""
+  # -- `hf_identity` of the centralized sweeper,
+  # `system:serviceaccount:<namespace>:<name>` (required)
+  sweeperIdentity: ""
+  wristband:
+    # -- `iss` claim every Wristband must carry (required)
+    issuer: ""
+    # -- `aud` claim every Wristband must carry (required)
+    audience: ""
+    # -- Absolute `http` or `https` URL of the key set that signs Wristbands (required)
+    jwksUrl: ""
+    # -- Path of a PEM CA bundle trusted in addition to the system trust store.
+    # Empty uses the service default.
+    jwksCaFile: ""
+    # -- Accepted signing algorithms, separated by commas. Empty uses the
+    # service default (`ES256`).
+    algorithms: ""
+  # -- Graceful shutdown budget in whole seconds (1 to 9223372036).
+  shutdownTimeoutSeconds: 20
+  log:
+    # -- Log level (`debug`, `info`, `warn`, `error`). Empty uses the service default.
+    level: ""
+    # -- Log format (`json` or `text`). Empty uses the service default.
+    format: ""
+    # -- Log output (`stdout` or `stderr`). Empty uses the service default.
+    output: ""
+
+# -- Additional environment variables for the container, for example database
+# credentials from a Secret. Use `config.shutdownTimeoutSeconds` to set `SHUTDOWN_TIMEOUT`.
+extraEnv: []
+
+# -- Additional `envFrom` sources for the container.
+# Sources in `extraEnvFrom` must not supply `SHUTDOWN_TIMEOUT`.
+extraEnvFrom: []
+
+# -- Additional volumes for the pod, for example a ConfigMap or Secret that
+# holds the CA bundle `config.wristband.jwksCaFile` points to
+extraVolumes: []
+
+# -- Additional volume mounts for the container
+extraVolumeMounts: []
+
+# -- Monitoring integration. Each resource needs the Prometheus Operator CRDs
+# or a Grafana dashboard sidecar from the monitoring stack.
+monitoring:
+  # -- ServiceMonitor for Prometheus Operator scrape configuration
+  serviceMonitor:
+    # -- Create a ServiceMonitor for the metrics port
+    enabled: false
+    # -- Namespace of the ServiceMonitor (defaults to the release namespace)
+    namespace: ""
+    # -- Additional labels on the ServiceMonitor
+    labels: {}
+    # -- Scrape interval
+    interval: 30s
+    # -- Scrape timeout
+    scrapeTimeout: 10s
+    # -- Honor labels from the target to avoid overwriting
+    honorLabels: true
+    # -- Metric relabeling rules
+    metricRelabeling: []
+    # -- Namespace selector for cross-namespace monitoring
+    namespaceSelector: {}
+  # -- PrometheusRule for alerting
+  prometheusRule:
+    # -- Create a PrometheusRule with the alerts. `HyperFleetDesireStoreDown`
+    # renders only when `monitoring.serviceMonitor.enabled` is also true.
+    enabled: false
+    # -- Namespace of the PrometheusRule (defaults to the release namespace)
+    namespace: ""
+    # -- Additional labels on the PrometheusRule
+    additionalLabels: {}
+    # -- Alert thresholds. The numbers are provisional: no production traffic
+    # exists to derive them from.
+    # @default -- See values.yaml
+    alerts:
+      down:
+        # -- How long the target must be down or absent before the alert fires
+        for: 5m
+      highErrorRatio:
+        # -- 5xx share of requests above which the alert fires (0.05 is 5%)
+        threshold: 0.05
+        # -- Requests per second below which the alert cannot fire
+        minRequestRate: 0.1
+        # -- How long the ratio must stay above the threshold
+        for: 10m
+      highLatency:
+        # -- p99 request duration in seconds above which the alert fires.
+        # Use a histogram bucket edge to avoid interpolation.
+        thresholdSeconds: 1
+        # -- Requests per second below which the alert cannot fire
+        minRequestRate: 0.1
+        # -- How long the latency must stay above the threshold
+        for: 10m
+  # -- Grafana dashboard provisioning via sidecar ConfigMap
+  dashboard:
+    # -- Create a ConfigMap with the Grafana dashboard (label `grafana_dashboard: "1"`)
+    enabled: false

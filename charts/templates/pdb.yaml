@@ -1,0 +1,13 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "hyperfleet-desire-store.fullname" . }}
+  labels:
+    {{- include "hyperfleet-desire-store.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "hyperfleet-desire-store.selectorLabels" . | nindent 6 }}
+{{- end }}
